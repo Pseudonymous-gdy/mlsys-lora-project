@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# Environments
+.venv/
+venv/
+env/
+*.egg-info/
+
+# Large files
+data/
+models/
+checkpoints/
+logs/
+hf_cache/
+*.pt
+*.pth
+*.ckpt
+*.bin
+*.safetensors
+*.gguf
+
+# Experiment trackers
+wandb/
+runs/
+
+# Secrets
+.env
+*.key
+*.pem
+config_private.yaml
+secrets.json
+
+# OS / editor
+.DS_Store
+.vscode/*
+!.vscode/settings.json
