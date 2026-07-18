@@ -1,0 +1,38 @@
+experiment:
+  name: rank_lora_r8
+  sweep: rank
+model:
+  name: Qwen/Qwen3.5-0.8B
+  fallback_name: Qwen/Qwen3-0.6B
+  trust_remote_code: false
+data:
+  name: openai/gsm8k
+  config: main
+  validation_size: 500
+  split_seed: 42
+  prompt_format: chat
+  max_length: 512
+  pad_to_multiple_of: 8
+method:
+  name: lora
+  rank: 8
+  alpha: 32
+  dropout: 0.05
+training:
+  seed: 42
+  precision: bf16
+  micro_batch_size: 1
+  effective_batch_size: 16
+  gradient_accumulation_steps: 16
+  learning_rate: 0.0002
+  weight_decay: 0.0
+  max_steps: null
+  training_token_budget: 1000000
+evaluation:
+  batch_size: 8
+  max_new_tokens: 512
+  do_sample: false
+  max_examples: 1319
+output:
+  results_dir: results
+  checkpoints_dir: checkpoints

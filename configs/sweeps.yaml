@@ -1,0 +1,60 @@
+variable_paths:
+  method: method.name
+  rank: method.rank
+  max_length: data.max_length
+  micro_batch_size: training.micro_batch_size
+  seed: training.seed
+  learning_rate: training.learning_rate
+
+sweeps:
+  smoke:
+    run_name: "smoke_{method}"
+    matrix:
+      - {method: full_ft, rank: null, learning_rate: 0.00002}
+      - {method: lora, rank: 16, learning_rate: 0.0002}
+    overrides:
+      training:
+        effective_batch_size: 1
+        max_steps: 30
+        training_token_budget: null
+      evaluation:
+        max_examples: 32
+
+  main:
+    run_name: "main_{method}"
+    matrix:
+      - {method: full_ft, rank: null, learning_rate: 0.00002}
+      - {method: lora, rank: 16, learning_rate: 0.0002}
+
+  max_batch:
+    run_name: "batch_{method}_mb{micro_batch_size}"
+    matrix:
+      - {method: full_ft, rank: null, learning_rate: 0.00002}
+      - {method: lora, rank: 16, learning_rate: 0.0002}
+    axes:
+      micro_batch_size: [1, 2, 4, 8, 16]
+
+  rank:
+    run_name: "rank_lora_r{rank}"
+    matrix:
+      - {method: lora, rank: 4, learning_rate: 0.0002}
+      - {method: lora, rank: 8, learning_rate: 0.0002}
+      - {method: lora, rank: 16, learning_rate: 0.0002}
+      - {method: lora, rank: 32, learning_rate: 0.0002}
+
+  sequence_length:
+    run_name: "seq_{method}_l{max_length}"
+    matrix:
+      - {method: full_ft, rank: null, learning_rate: 0.00002}
+      - {method: lora, rank: 16, learning_rate: 0.0002}
+    axes:
+      max_length: [256, 512, 1024]
+
+  final_seeds:
+    run_name: "seed_{method}_r{rank}_s{seed}"
+    matrix:
+      - {method: full_ft, rank: 0, learning_rate: 0.00002}
+      - {method: lora, rank: 8, learning_rate: 0.0002}
+      - {method: lora, rank: 16, learning_rate: 0.0002}
+    axes:
+      seed: [11, 22, 33]
