@@ -11,6 +11,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+KNOWN_MODEL_REVISIONS = {
+    "Qwen/Qwen3.5-0.8B": "2fc06364715b967f1860aea9cf38778875588b17",
+    "Qwen/Qwen3-0.6B": "c1899de289a04d12100db370d81485cdf75e47ca",
+}
+
 
 def main() -> None:
     from transformers import AutoTokenizer
@@ -20,6 +25,7 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model", default="Qwen/Qwen3.5-0.8B")
+    parser.add_argument("--model-revision")
     parser.add_argument("--samples", type=int, default=20)
     parser.add_argument("--max-length", type=int, default=512)
     parser.add_argument("--seed", type=int, default=42)
@@ -28,7 +34,8 @@ def main() -> None:
         raise ValueError("--samples must be positive")
 
     config = GSM8KDataConfig(seed=args.seed, max_length=args.max_length)
-    tokenizer = AutoTokenizer.from_pretrained(args.model)
+    model_revision = args.model_revision or KNOWN_MODEL_REVISIONS.get(args.model)
+    tokenizer = AutoTokenizer.from_pretrained(args.model, revision=model_revision)
     splits = load_gsm8k_splits(config)
     sample_count = min(args.samples, len(splits["train"]))
     tokenized = [
@@ -57,6 +64,8 @@ def main() -> None:
     }
     summary = {
         "model_tokenizer": args.model,
+        "model_revision": model_revision,
+        "dataset_revision": config.dataset_revision,
         "split_sizes": {name: len(split) for name, split in splits.items()},
         "sampled": sample_count,
         "kept": len(kept),

@@ -38,6 +38,12 @@ def test_plain_prompt_has_question_but_not_reference_answer():
     assert "#### 42" not in prompt
 
 
+def test_data_revision_is_pinned_and_required():
+    assert len(GSM8KDataConfig().dataset_revision) == 40
+    with pytest.raises(ValueError, match="dataset_revision"):
+        GSM8KDataConfig(dataset_revision="")
+
+
 def test_chat_prompt_uses_generation_boundary():
     prompt = render_prompt("What is 20 + 22?", CharacterTokenizer(), "chat")
     assert prompt.endswith("<assistant>")

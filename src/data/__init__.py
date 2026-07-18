@@ -2,6 +2,7 @@
 
 from .gsm8k import (
     DEFAULT_SYSTEM_PROMPT,
+    DEFAULT_GSM8K_REVISION,
     CausalLMCollator,
     GSM8KDataConfig,
     build_plain_prompt,
@@ -13,6 +14,7 @@ from .gsm8k import (
 
 __all__ = [
     "DEFAULT_SYSTEM_PROMPT",
+    "DEFAULT_GSM8K_REVISION",
     "CausalLMCollator",
     "GSM8KDataConfig",
     "build_plain_prompt",

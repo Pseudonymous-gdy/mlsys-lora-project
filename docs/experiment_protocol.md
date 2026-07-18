@@ -6,7 +6,8 @@ final report.
 
 ## 1. What is fixed
 
-- Dataset: `openai/gsm8k`, configuration `main`.
+- Dataset: `openai/gsm8k`, configuration `main`, pinned revision
+  `740312add88f781978c0658806c59bc2815b9866`.
 - Official train size: 7,473; official test size: 1,319.
 - Validation: 500 examples deterministically carved from official train with
   seed 42, leaving 6,973 training examples.
@@ -14,6 +15,10 @@ final report.
 - Prompt format, tokenizer, example order, maximum length, padding policy,
   effective batch size, precision, training token budget, and evaluation code
   must match between Full FT and LoRA for a comparison.
+- Primary model/tokenizer revision:
+  `Qwen/Qwen3.5-0.8B@2fc06364715b967f1860aea9cf38778875588b17`.
+  Fallback revision:
+  `Qwen/Qwen3-0.6B@c1899de289a04d12100db370d81485cdf75e47ca`.
 - The input pipeline returns `input_ids`, `attention_mask`, `labels`, and
   `num_non_padding_tokens`. Daoyuan's training loop should remove the token-count
   field before calling the model and use it for throughput accounting.
@@ -140,3 +145,6 @@ Daoyuan should import `prepare_gsm8k_datasets` and `CausalLMCollator` rather tha
 reimplement tokenization. Evaluation should call `generate_predictions` and save
 its JSONL records. This ensures Full FT and LoRA share exactly one data and
 evaluation path. All core changes go through a Pull Request and cross-review.
+The training entry point must pass `model.revision` to
+`AutoTokenizer.from_pretrained` and model `from_pretrained`; the data loader
+already passes the pinned `data.revision` to Hugging Face Datasets.

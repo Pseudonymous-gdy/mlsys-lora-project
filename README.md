@@ -49,6 +49,10 @@ A one-example base-model smoke test was also completed with
 `Qwen/Qwen3.5-0.8B` on Apple MPS. This validates the real generation/evaluation
 interface only; its answer is not a Full FT or LoRA result.
 
+Dataset and model revisions are pinned in `configs/base.yaml`. This guarantees
+that local and HPC runs request the same upstream artifacts rather than whatever
+version happens to be newest later.
+
 See [docs/experiment_protocol.md](docs/experiment_protocol.md) for the data
 contract, fairness controls, result schema, and handoff procedure.
 

@@ -15,6 +15,7 @@ DEFAULT_SYSTEM_PROMPT = (
     "You are a careful math solver. Show the reasoning clearly and finish with "
     'a separate line in the exact form "#### <answer>".'
 )
+DEFAULT_GSM8K_REVISION = "740312add88f781978c0658806c59bc2815b9866"
 
 
 @dataclass(frozen=True)
@@ -23,6 +24,7 @@ class GSM8KDataConfig:
 
     dataset_name: str = "openai/gsm8k"
     dataset_config: str = "main"
+    dataset_revision: str = DEFAULT_GSM8K_REVISION
     validation_size: int = 500
     seed: int = 42
     max_length: int = 512
@@ -32,6 +34,8 @@ class GSM8KDataConfig:
     def __post_init__(self) -> None:
         if self.validation_size <= 0:
             raise ValueError("validation_size must be positive")
+        if not self.dataset_revision.strip():
+            raise ValueError("dataset_revision must not be empty")
         if self.max_length <= 0:
             raise ValueError("max_length must be positive")
         if self.prompt_format not in {"chat", "plain"}:
@@ -175,7 +179,11 @@ def load_gsm8k_splits(config: GSM8KDataConfig) -> Any:
 
     from datasets import DatasetDict, load_dataset
 
-    raw = load_dataset(config.dataset_name, config.dataset_config)
+    raw = load_dataset(
+        config.dataset_name,
+        config.dataset_config,
+        revision=config.dataset_revision,
+    )
     if "train" not in raw or "test" not in raw:
         raise ValueError("GSM8K dataset must contain train and test splits")
     required_columns = {"question", "answer"}
