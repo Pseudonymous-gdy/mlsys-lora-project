@@ -1,6 +1,10 @@
 # Python
 __pycache__/
 *.pyc
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
 .ipynb_checkpoints/
 
 # Environments
@@ -8,13 +12,15 @@ __pycache__/
 venv/
 env/
 *.egg-info/
+build/
+dist/
 
 # Large files
-data/
-models/
-checkpoints/
-logs/
-hf_cache/
+/data/
+/models/
+/checkpoints/
+/logs/
+/hf_cache/
 *.pt
 *.pth
 *.ckpt
@@ -39,7 +45,7 @@ secrets.json
 !.vscode/settings.json
 
 # Ignore local symlinks to large storage
-data
-models
-checkpoints
-logs
+/data
+/models
+/checkpoints
+/logs
