@@ -5,16 +5,15 @@ Validates:
 - Formatted examples → generate_predictions → save_predictions_jsonl → EvaluationResult
 """
 
-import pytest
-import torch
-import tempfile
 import json
+import tempfile
 from pathlib import Path
 
-from evaluation.generate import generate_predictions, save_predictions_jsonl
-from evaluation.exact_match import score_prediction, compute_exact_match
-from training.results import EvaluationResult
+import torch
 
+from evaluation.exact_match import compute_exact_match, score_prediction
+from evaluation.generate import generate_predictions, save_predictions_jsonl
+from training.results import EvaluationResult
 
 # ============================================================================
 # Tiny model for generation

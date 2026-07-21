@@ -6,8 +6,9 @@ configured warmup optimizer steps.
 '''
 
 import time
-import torch
 from dataclasses import dataclass
+
+import torch
 
 
 @dataclass(frozen=True)

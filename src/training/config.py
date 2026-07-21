@@ -6,16 +6,14 @@ This module is the only module allowed to parse YAML.
 
 from __future__ import annotations
 
-import json
 import tempfile
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
 import yaml
 
 from data.gsm8k import GSM8KDataConfig
-
 
 # ============================================================================
 # Configuration dataclasses
@@ -337,6 +335,9 @@ def validate_experiment_config(config: ExperimentConfig) -> None:
     if t.throughput_warmup_steps < 0:
         errors.append("throughput_warmup_steps must be >= 0")
 
+    if t.gradient_clip_norm is not None and t.gradient_clip_norm <= 0:
+        errors.append("gradient_clip_norm must be > 0")
+
     # Stopping conditions
     if t.max_steps is None and t.training_token_budget is None:
         errors.append(
@@ -379,6 +380,15 @@ def validate_experiment_config(config: ExperimentConfig) -> None:
     if errors:
         raise ValueError(
             "Configuration validation failed:\n" + "\n".join(f"  - {e}" for e in errors)
+        )
+
+    if (
+        config.training.gradient_clip_norm is not None
+        and config.training.gradient_clip_norm <= 0
+    ):
+        raise ValueError(
+            "training.gradient_clip_norm must be positive "
+            "when provided"
         )
 
 

@@ -8,11 +8,9 @@ from __future__ import annotations
 
 import datetime
 import json
-import os
 import platform
 import re
 import subprocess
-import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -20,17 +18,16 @@ from typing import TYPE_CHECKING
 
 import torch
 
-from src.metrics.memory import CudaMemoryTracker, is_cuda_oom
-from src.metrics.throughput import ThroughputTracker
-from src.training.checkpoint import (
+from metrics.memory import CudaMemoryTracker, is_cuda_oom
+from metrics.throughput import ThroughputTracker
+from training.checkpoint import (
     CheckpointInfo,
     save_final_checkpoint,
     verify_checkpoint_reload,
 )
-from src.training.config import config_to_dict, write_resolved_config
-from src.training.engine import TrainerEngine
-from src.training.optim import build_optimizer
-from src.training.results import (
+from training.config import write_resolved_config
+from training.engine import TrainerEngine
+from training.results import (
     EvaluationResult,
     ExperimentResult,
     TrainingResult,
@@ -38,13 +35,13 @@ from src.training.results import (
     validate_experiment_result,
     write_json_atomic,
 )
-from src.training.setup import (
+from training.setup import (
     TrainingComponents,
     build_training_components,
 )
 
 if TYPE_CHECKING:
-    from src.training.config import ExperimentConfig
+    from training.config import ExperimentConfig
 
 
 # ============================================================================
@@ -208,7 +205,6 @@ def collect_run_metadata(
     - resolved paths
     - parameter statistics
     """
-    import transformers
 
     try:
         import peft
@@ -241,7 +237,7 @@ def collect_run_metadata(
         "attention_backend": config.model.attention_backend,
         "model_name": config.model.name,
         "model_revision": config.model.revision,
-        "dataset_revision": config.data.revision,
+        "dataset_revision": config.data.dataset_revision,
         "parameter_stats": {
             "total_parameters": components.model_bundle.parameter_stats.total_parameters,
             "trainable_parameters": components.model_bundle.parameter_stats.trainable_parameters,
@@ -524,7 +520,7 @@ class ExperimentRunner:
             sweep=self.config.experiment.sweep,
             model_name=self.config.model.name,
             model_revision=self.config.model.revision,
-            dataset_revision=self.config.data.revision,
+            dataset_revision=self.config.data.dataset_revision,
             attention_backend=self.config.model.attention_backend,
             status="completed",
             error_type=None,
@@ -569,7 +565,7 @@ class ExperimentRunner:
             sweep=self.config.experiment.sweep,
             model_name=self.config.model.name,
             model_revision=self.config.model.revision,
-            dataset_revision=self.config.data.revision,
+            dataset_revision=self.config.data.dataset_revision,
             attention_backend=self.config.model.attention_backend,
             status="oom",
             error_type=type(error).__name__,
@@ -611,7 +607,7 @@ class ExperimentRunner:
             sweep=self.config.experiment.sweep,
             model_name=self.config.model.name,
             model_revision=self.config.model.revision,
-            dataset_revision=self.config.data.revision,
+            dataset_revision=self.config.data.dataset_revision,
             attention_backend=self.config.model.attention_backend,
             status="failed",
             error_type=type(error).__name__,

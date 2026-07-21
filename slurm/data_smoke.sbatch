@@ -27,7 +27,7 @@ export TMPDIR="$MLSYS_DATA/tmp"
 export HF_ENDPOINT=https://hf-mirror.com
 
 export TOKENIZERS_PARALLELISM=false
-export PYTHONPATH="$MLSYS_ROOT/src:${PYTHONPATH:-}"
+export PYTHONPATH="$PROJECT_ROOT/src"
 
 mkdir -p \
     "$HF_HOME" \

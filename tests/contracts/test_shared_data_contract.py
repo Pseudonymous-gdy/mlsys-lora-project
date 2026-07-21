@@ -7,12 +7,10 @@ Validates:
 - Same collator produces identical batches
 """
 
-import pytest
 import torch
 from torch.utils.data import DataLoader, Dataset
 
 from data.gsm8k import CausalLMCollator
-
 
 # ============================================================================
 # Synthetic dataset

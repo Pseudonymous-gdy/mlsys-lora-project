@@ -7,26 +7,20 @@ Validates:
 - Type constraints enforced
 """
 
-import pytest
 import json
+
+# import sys
 import tempfile
-import sys
 from pathlib import Path
-from unittest.mock import MagicMock
 
+# from unittest.mock import MagicMock
 # Mock transformers to avoid version conflict during import
-sys.modules.setdefault('transformers', MagicMock())
-
+# sys.modules.setdefault('transformers', MagicMock())
 from training.results import (
-    StopReason,
-    TrainingResult,
-    EvaluationResult,
     ExperimentResult,
     experiment_result_to_dict,
-    validate_experiment_result,
     write_json_atomic,
 )
-
 
 # ============================================================================
 # Helper functions

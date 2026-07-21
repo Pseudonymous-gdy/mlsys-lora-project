@@ -8,12 +8,10 @@ Tests:
 """
 
 import pytest
-import torch
 import torch.nn as nn
 
 from methods.common import ParameterStats
 from methods.full_ft import configure_full_finetuning, validate_full_finetuning
-
 
 # ============================================================================
 # Helper models

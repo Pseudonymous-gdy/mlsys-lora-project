@@ -8,12 +8,12 @@ Tests with mocked CUDA API:
 - non-CUDA build explicitly fails
 """
 
+from unittest.mock import patch
+
 import pytest
 import torch
-from unittest.mock import MagicMock, patch
 
-from metrics.memory import MemoryMetrics, CudaMemoryTracker, is_cuda_oom
-
+from metrics.memory import CudaMemoryTracker, MemoryMetrics, is_cuda_oom
 
 # ============================================================================
 # MemoryMetrics tests

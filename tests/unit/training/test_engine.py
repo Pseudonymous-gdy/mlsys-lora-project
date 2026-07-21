@@ -13,24 +13,23 @@ Tests with tiny model and synthetic batches:
 - token count excludes padding
 """
 
-import pytest
-import torch
-import torch.nn as nn
 from unittest.mock import MagicMock, patch
 
-from training.engine import TrainerEngine
-from training.results import StopReason, TrainingResult
+import torch
+import torch.nn as nn
+
+from data.gsm8k import GSM8KDataConfig
 from training.config import (
+    EvaluationConfig,
     ExperimentConfig,
     ExperimentIdentityConfig,
-    ModelConfig,
     MethodConfig,
-    TrainingConfig,
-    EvaluationConfig,
+    ModelConfig,
     OutputConfig,
+    TrainingConfig,
 )
-from data.gsm8k import GSM8KDataConfig
-
+from training.engine import TrainerEngine
+from training.results import StopReason
 
 # ============================================================================
 # Helper classes

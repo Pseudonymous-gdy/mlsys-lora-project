@@ -7,24 +7,25 @@ Validates:
 - Forward pass works after reload
 """
 
-import pytest
-import torch
 import tempfile
 from pathlib import Path
 
+import pytest
+import torch
+
+from data.gsm8k import GSM8KDataConfig
 from methods.lora import configure_lora
-from training.optim import build_optimizer
 from training.config import (
+    EvaluationConfig,
     ExperimentConfig,
     ExperimentIdentityConfig,
-    ModelConfig,
     MethodConfig,
-    TrainingConfig,
-    EvaluationConfig,
+    ModelConfig,
     OutputConfig,
+    TrainingConfig,
 )
-from data.gsm8k import GSM8KDataConfig
-
+from training.optim import build_optimizer
+from types import SimpleNamespace
 
 # ============================================================================
 # Tiny model with linear projections
@@ -42,6 +43,9 @@ class TinyModelWithProjections(torch.nn.Module):
         self.v_proj = torch.nn.Linear(hidden_size, hidden_size)
         self.o_proj = torch.nn.Linear(hidden_size, hidden_size)
         self.lm_head = torch.nn.Linear(hidden_size, vocab_size)
+        self.config = SimpleNamespace(
+            model_type="tiny",
+        )
 
     def forward(self, input_ids, attention_mask=None, labels=None, **kwargs):
         hidden = self.embedding(input_ids)
@@ -56,6 +60,20 @@ class TinyModelWithProjections(torch.nn.Module):
             input_ids.view(-1),
         )
         return type("Output", (), {"loss": loss, "logits": logits})()
+
+    def prepare_inputs_for_generation(self, input_ids, **kwargs):
+        """Return minimal generation inputs expected by PEFT CAUSAL_LM.
+
+        The tests in this file do not perform text generation. This method
+        exists only to satisfy the causal-language-model interface expected
+        by PeftModelForCausalLM during LoRA wrapping.
+        """
+        model_inputs = {"input_ids": input_ids}
+
+        if "attention_mask" in kwargs:
+            model_inputs["attention_mask"] = kwargs["attention_mask"]
+
+        return model_inputs
 
 
 # ============================================================================
@@ -110,7 +128,7 @@ class TestCheckpointReloadLoRA:
         model = TinyModelWithProjections(vocab_size=100, hidden_size=32)
         config = make_lora_config()
 
-        model = configure_lora(model, config)
+        model, _ = configure_lora(model, config.method)
         optimizer = build_optimizer(model, config)
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -132,7 +150,7 @@ class TestCheckpointReloadLoRA:
         model = TinyModelWithProjections(vocab_size=100, hidden_size=32)
         config = make_lora_config()
 
-        model = configure_lora(model, config)
+        model, _ = configure_lora(model, config.method)
         optimizer = build_optimizer(model, config)
 
         # Store original state
@@ -149,7 +167,7 @@ class TestCheckpointReloadLoRA:
 
             # Create new model and reload
             new_model = TinyModelWithProjections(vocab_size=100, hidden_size=32)
-            new_model = configure_lora(new_model, config)
+            new_model, _ = configure_lora(new_model, config.method)
 
             checkpoint = torch.load(checkpoint_path, weights_only=False)
             new_model.load_state_dict(checkpoint["model_state_dict"])
@@ -165,7 +183,7 @@ class TestCheckpointReloadLoRA:
         model = TinyModelWithProjections(vocab_size=100, hidden_size=32)
         config = make_lora_config()
 
-        model = configure_lora(model, config)
+        model, _ = configure_lora(model, config.method)
         optimizer = build_optimizer(model, config)
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -179,7 +197,7 @@ class TestCheckpointReloadLoRA:
 
             # Reload
             new_model = TinyModelWithProjections(vocab_size=100, hidden_size=32)
-            new_model = configure_lora(new_model, config)
+            new_model, _ = configure_lora(new_model, config.method)
 
             checkpoint = torch.load(checkpoint_path, weights_only=False)
             new_model.load_state_dict(checkpoint["model_state_dict"])
@@ -198,7 +216,7 @@ class TestCheckpointReloadLoRA:
         model = TinyModelWithProjections(vocab_size=100, hidden_size=32)
         config = make_lora_config()
 
-        model = configure_lora(model, config)
+        model, _ = configure_lora(model, config.method)
         optimizer = build_optimizer(model, config)
 
         # Store adapter parameters
@@ -219,7 +237,7 @@ class TestCheckpointReloadLoRA:
 
             # Reload
             new_model = TinyModelWithProjections(vocab_size=100, hidden_size=32)
-            new_model = configure_lora(new_model, config)
+            new_model, _ = configure_lora(new_model, config.method)
 
             checkpoint = torch.load(checkpoint_path, weights_only=False)
             new_model.load_state_dict(checkpoint["model_state_dict"])
@@ -235,7 +253,7 @@ class TestCheckpointReloadLoRA:
         model = TinyModelWithProjections(vocab_size=100, hidden_size=32)
         config = make_lora_config()
 
-        model = configure_lora(model, config)
+        model, _ = configure_lora(model, config.method)
         optimizer = build_optimizer(model, config)
 
         with tempfile.TemporaryDirectory() as tmpdir:

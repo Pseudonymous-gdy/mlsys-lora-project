@@ -9,21 +9,19 @@ from __future__ import annotations
 
 import time
 from contextlib import contextmanager
-from dataclasses import dataclass
-from enum import Enum
 from typing import TYPE_CHECKING
 
 import torch
 
-from src.training.results import StopReason, TrainingResult
+from training.results import StopReason, TrainingResult
 
 if TYPE_CHECKING:
     from torch.optim import Optimizer
     from torch.utils.data import DataLoader
 
-    from src.metrics.memory import CudaMemoryTracker
-    from src.metrics.throughput import ThroughputTracker
-    from src.training.config import ExperimentConfig
+    from metrics.memory import CudaMemoryTracker
+    from metrics.throughput import ThroughputTracker
+    from training.config import ExperimentConfig
 
 
 # ============================================================================
@@ -113,11 +111,18 @@ class TrainerEngine:
         Only called when gradient accumulation is complete.
         """
         # Gradient clipping
-        max_grad_norm = self.config.training.max_grad_norm
-        if max_grad_norm is not None and max_grad_norm > 0:
+        gradient_clip_norm = (
+            self.config.training.gradient_clip_norm
+        )
+
+        if gradient_clip_norm is not None:
             torch.nn.utils.clip_grad_norm_(
-                model.parameters(),
-                max_grad_norm,
+                (
+                    parameter
+                    for parameter in model.parameters()
+                    if parameter.requires_grad
+                ),
+                gradient_clip_norm,
             )
 
         optimizer.step()
@@ -222,27 +227,32 @@ class TrainerEngine:
 
         # Finish tracking
         measured_time = time.time() - start_time
-        self.memory_tracker.snapshot()
 
         # Compute final metrics
         final_loss = float(total_loss / loss_count) if loss_count > 0 else 0.0
         mean_loss = final_loss  # Same as final_loss for this implementation
 
-        throughput_tracker.finish()
-        throughput_metrics = throughput_tracker.get_metrics()
-
-        memory_metrics = self.memory_tracker.get_metrics()
+        memory_metrics = self.memory_tracker.snapshot()
+        throughput_metrics = throughput_tracker.finish()
 
         return TrainingResult(
             optimizer_steps=optimizer_steps,
             micro_steps=micro_steps,
-            trained_non_padding_tokens=trained_non_padding_tokens,
+            trained_non_padding_tokens=(
+                trained_non_padding_tokens
+            ),
             final_loss=final_loss,
             mean_loss=mean_loss,
             training_time_seconds=measured_time,
-            measured_time_seconds=measured_time,
-            tokens_per_second=throughput_metrics.tokens_per_second,
-            peak_memory_gb=memory_metrics.peak_memory_gb,
-            peak_reserved_memory_gb=memory_metrics.peak_reserved_memory_gb,
-            stop_reason=stop_reason.value if stop_reason else StopReason.DATA_EXHAUSTED.value,
+            measured_time_seconds=(
+                throughput_metrics.measured_seconds
+            ),
+            tokens_per_second=(
+                throughput_metrics.tokens_per_second
+            ),
+            peak_memory_gb=memory_metrics.peak_allocated_gb,
+            peak_reserved_memory_gb=(
+                memory_metrics.peak_reserved_gb
+            ),
+            stop_reason=stop_reason.value,
         )

@@ -4,7 +4,6 @@ import yaml
 
 from analysis.generate_configs import build_configs, generate_config_files
 
-
 ROOT = Path(__file__).resolve().parents[1]
 
 

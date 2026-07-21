@@ -13,12 +13,11 @@ import torch.nn as nn
 
 from methods.common import (
     ParameterStats,
-    count_parameters,
-    get_trainable_parameter_names,
     assert_has_trainable_parameters,
     assert_optimizer_matches_trainable_parameters,
+    count_parameters,
+    get_trainable_parameter_names,
 )
-
 
 # ============================================================================
 # Helper models

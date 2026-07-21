@@ -11,27 +11,26 @@ Tests:
 - path serialization
 """
 
-import pytest
 import tempfile
 from pathlib import Path
 
+import pytest
 import yaml
 
+from data.gsm8k import GSM8KDataConfig
 from training.config import (
+    EvaluationConfig,
     ExperimentConfig,
     ExperimentIdentityConfig,
-    ModelConfig,
     MethodConfig,
-    TrainingConfig,
-    EvaluationConfig,
+    ModelConfig,
     OutputConfig,
+    TrainingConfig,
+    config_to_dict,
     load_experiment_config,
     validate_experiment_config,
-    config_to_dict,
     write_resolved_config,
 )
-from data.gsm8k import GSM8KDataConfig
-
 
 # ============================================================================
 # Helper functions
@@ -287,6 +286,25 @@ class TestInvalidConfiguration:
         })
         with pytest.raises(ValueError, match="max_new_tokens"):
             validate_experiment_config(config)
+
+    def test_rejects_non_positive_gradient_clip_norm(self):
+        config = make_minimal_config({
+            "training": TrainingConfig(gradient_clip_norm=0)
+        })
+        with pytest.raises(ValueError, match="gradient_clip_norm"):
+            validate_experiment_config(config)
+
+
+# ============================================================================
+# Training config structure tests
+# ============================================================================
+
+
+class TestTrainingConfigStructure:
+    def test_training_config_exposes_gradient_clip_norm(self):
+        config = make_minimal_config()
+        assert hasattr(config.training, "gradient_clip_norm")
+        assert not hasattr(config.training, "max_grad_norm")
 
 
 # ============================================================================

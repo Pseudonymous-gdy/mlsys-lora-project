@@ -2,7 +2,8 @@
 This module is responsible only for configuring and validating Full Fine-tuning.
 '''
 
-from .common import ParameterStats, count_parameters, get_trainable_parameter_names, assert_has_trainable_parameters
+from .common import ParameterStats, assert_has_trainable_parameters, count_parameters
+
 
 def configure_full_finetuning(model) -> ParameterStats:
     '''

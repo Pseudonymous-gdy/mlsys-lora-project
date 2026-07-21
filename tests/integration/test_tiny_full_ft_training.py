@@ -7,25 +7,22 @@ Validates:
 - Parameters change after training
 """
 
-import pytest
 import torch
 from torch.utils.data import DataLoader, Dataset
 
-from data.gsm8k import CausalLMCollator
-from training.engine import TrainerEngine
+from data.gsm8k import CausalLMCollator, GSM8KDataConfig
+from methods.full_ft import configure_full_finetuning
 from training.config import (
+    EvaluationConfig,
     ExperimentConfig,
     ExperimentIdentityConfig,
-    ModelConfig,
     MethodConfig,
-    TrainingConfig,
-    EvaluationConfig,
+    ModelConfig,
     OutputConfig,
+    TrainingConfig,
 )
-from data.gsm8k import GSM8KDataConfig
-from methods.full_ft import configure_full_finetuning
+from training.engine import TrainerEngine
 from training.optim import build_optimizer
-
 
 # ============================================================================
 # Synthetic dataset

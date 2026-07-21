@@ -11,7 +11,6 @@ from typing import Any
 import torch
 
 from methods.common import (
-    assert_has_trainable_parameters,
     assert_optimizer_matches_trainable_parameters,
 )
 from training.config import ExperimentConfig

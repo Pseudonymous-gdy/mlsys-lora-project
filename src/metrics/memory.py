@@ -2,8 +2,9 @@
 This module provides GPU memory measurement utilities for training experiments.
 '''
 
-import torch
 from dataclasses import dataclass
+
+import torch
 
 
 @dataclass(frozen=True)
@@ -52,16 +53,20 @@ class CudaMemoryTracker:
         """
         torch.cuda.synchronize(self._device)
 
-        peak_allocated = torch.cuda.max_memory_allocated(self._device)
-        peak_reserved = torch.cuda.max_memory_reserved(self._device)
+        allocated_bytes = torch.cuda.max_memory_allocated(
+            self._device
+        )
+        reserved_bytes = torch.cuda.max_memory_reserved(
+            self._device
+        )
 
-        bytes_per_gb = 1024 ** 3
+        gib = 1024**3
 
         return MemoryMetrics(
-            peak_allocated_bytes=peak_allocated,
-            peak_reserved_bytes=peak_reserved,
-            peak_allocated_gb=peak_allocated / bytes_per_gb,
-            peak_reserved_gb=peak_reserved / bytes_per_gb,
+            peak_allocated_bytes=allocated_bytes,
+            peak_reserved_bytes=reserved_bytes,
+            peak_allocated_gb=allocated_bytes / gib,
+            peak_reserved_gb=reserved_bytes / gib,
         )
 
 

@@ -44,8 +44,8 @@ def main() -> int:
     repository_root = args.repository_root or Path(__file__).resolve().parent.parent
 
     # Import training modules
-    from src.training.config import load_experiment_config
-    from src.training.experiment import ExperimentRunner
+    from training.config import load_experiment_config
+    from training.experiment import ExperimentRunner
 
     # Load and validate config
     config = load_experiment_config(args.config)
@@ -62,7 +62,7 @@ def main() -> int:
         raise
 
     # Print result JSON to stdout
-    from src.training.results import experiment_result_to_dict
+    from training.results import experiment_result_to_dict
     print(json.dumps(experiment_result_to_dict(result), indent=2))
 
     # Return appropriate exit code

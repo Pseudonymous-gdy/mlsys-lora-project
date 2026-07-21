@@ -2,8 +2,15 @@
 This module injects and validates LoRA adapters.
 '''
 
-from .common import ParameterStats, count_parameters, get_trainable_parameter_names, assert_has_trainable_parameters
 from dataclasses import dataclass
+
+from .common import (
+    ParameterStats,
+    assert_has_trainable_parameters,
+    count_parameters,
+    get_trainable_parameter_names,
+)
+
 
 @dataclass
 class LoraMethodConfig:
@@ -125,7 +132,7 @@ def configure_lora(model, config) -> tuple[object, ParameterStats]:
         tuple[object, ParameterStats]: The PEFT-wrapped model and parameter statistics.
     '''
     try:
-        from peft import LoraConfig, get_peft_model, TaskType
+        from peft import LoraConfig, TaskType, get_peft_model
     except ImportError as e:
         raise ImportError(
             "peft is required for LoRA experiments. Install with: pip install peft"

@@ -7,20 +7,18 @@ Validates:
 - Config values are within expected ranges
 """
 
-import pytest
-import yaml
-import sys
+# import sys
 from pathlib import Path
-from unittest.mock import MagicMock
+
+# from unittest.mock import MagicMock
+import yaml
 
 # Mock transformers to avoid version conflict during import
-sys.modules.setdefault('transformers', MagicMock())
-
+# sys.modules.setdefault('transformers', MagicMock())
 from training.config import (
     load_experiment_config,
     validate_experiment_config,
 )
-
 
 # ============================================================================
 # Config paths
@@ -76,6 +74,13 @@ ALL_GENERATED_CONFIGS = [
 # Tests
 # ============================================================================
 
+def test_data_config_exposes_dataset_revision() -> None:
+    config = load_experiment_config(
+        Path("configs/generated/smoke_lora.yaml")
+    )
+
+    assert config.data.dataset_revision
+    assert not hasattr(config.data, "revision")
 
 class TestGeneratedConfigs:
     def test_all_config_files_exist(self):

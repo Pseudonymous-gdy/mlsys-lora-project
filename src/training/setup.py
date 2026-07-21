@@ -8,18 +8,16 @@ from __future__ import annotations
 
 import random
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
-from methods.common import ParameterStats, assert_optimizer_matches_trainable_parameters
 from methods import configure_training_method
+from methods.common import ParameterStats, assert_optimizer_matches_trainable_parameters
 from training.config import ExperimentConfig
 from training.optim import build_optimizer
-
 
 # ============================================================================
 # Bundle dataclasses
@@ -290,7 +288,6 @@ def build_data_bundle(config: ExperimentConfig, tokenizer: Any) -> DataBundle:
     Both use the same collator.
     """
     from data.gsm8k import (
-        GSM8KDataConfig,
         CausalLMCollator,
         prepare_gsm8k_datasets,
     )

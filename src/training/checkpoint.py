@@ -15,12 +15,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM
 
 if TYPE_CHECKING:
     from transformers import PreTrainedModel, PreTrainedTokenizerBase
 
-    from src.training.config import ExperimentConfig
+    from training.config import ExperimentConfig
 
 
 # ============================================================================

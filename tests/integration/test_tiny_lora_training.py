@@ -11,21 +11,20 @@ import pytest
 import torch
 from torch.utils.data import DataLoader, Dataset
 
-from data.gsm8k import CausalLMCollator
-from training.engine import TrainerEngine
+from data.gsm8k import CausalLMCollator, GSM8KDataConfig
+from methods.lora import configure_lora
 from training.config import (
+    EvaluationConfig,
     ExperimentConfig,
     ExperimentIdentityConfig,
-    ModelConfig,
     MethodConfig,
-    TrainingConfig,
-    EvaluationConfig,
+    ModelConfig,
     OutputConfig,
+    TrainingConfig,
 )
-from data.gsm8k import GSM8KDataConfig
-from methods.lora import configure_lora, validate_lora_trainability
+from training.engine import TrainerEngine
 from training.optim import build_optimizer
-
+from types import SimpleNamespace
 
 # ============================================================================
 # Synthetic dataset
@@ -71,6 +70,9 @@ class TinyModelWithProjections(torch.nn.Module):
         self.v_proj = torch.nn.Linear(hidden_size, hidden_size)
         self.o_proj = torch.nn.Linear(hidden_size, hidden_size)
         self.lm_head = torch.nn.Linear(hidden_size, vocab_size)
+        self.config = SimpleNamespace(
+            model_type="tiny",
+        )
 
     def forward(self, input_ids, attention_mask=None, labels=None, **kwargs):
         hidden = self.embedding(input_ids)
@@ -85,6 +87,20 @@ class TinyModelWithProjections(torch.nn.Module):
             input_ids.view(-1),
         )
         return type("Output", (), {"loss": loss, "logits": logits})()
+
+    def prepare_inputs_for_generation(self, input_ids, **kwargs):
+        """Return minimal generation inputs expected by PEFT CAUSAL_LM.
+
+        The tests in this file do not perform text generation. This method
+        exists only to satisfy the causal-language-model interface expected
+        by PeftModelForCausalLM during LoRA wrapping.
+        """
+        model_inputs = {"input_ids": input_ids}
+
+        if "attention_mask" in kwargs:
+            model_inputs["attention_mask"] = kwargs["attention_mask"]
+
+        return model_inputs
 
 
 # ============================================================================
@@ -150,7 +166,7 @@ class TestTinyLoRATraining:
         model = TinyModelWithProjections(vocab_size=100, hidden_size=32)
         config = make_lora_config()
 
-        model = configure_lora(model, config)
+        model, _ = configure_lora(model, config.method)
 
         trainable_params = [name for name, param in model.named_parameters() if param.requires_grad]
         frozen_params = [name for name, param in model.named_parameters() if not param.requires_grad]
@@ -165,7 +181,7 @@ class TestTinyLoRATraining:
         model = TinyModelWithProjections(vocab_size=100, hidden_size=32)
         config = make_lora_config()
 
-        model = configure_lora(model, config)
+        model, _ = configure_lora(model, config.method)
 
         # Check that original projection layers are frozen
         for name, param in model.named_parameters():
@@ -179,7 +195,7 @@ class TestTinyLoRATraining:
         model = TinyModelWithProjections(vocab_size=100, hidden_size=32)
         config = make_lora_config()
 
-        model = configure_lora(model, config)
+        model, _ = configure_lora(model, config.method)
         optimizer = build_optimizer(model, config)
 
         param_groups = optimizer.param_groups
@@ -195,7 +211,7 @@ class TestTinyLoRATraining:
         model = TinyModelWithProjections(vocab_size=100, hidden_size=32)
         config = make_lora_config(max_steps=2)
 
-        model = configure_lora(model, config)
+        model, _ = configure_lora(model, config.method)
         optimizer = build_optimizer(model, config)
 
         dataset = TinyTokenDataset(num_samples=8, seq_length=32)
@@ -230,7 +246,7 @@ class TestTinyLoRATraining:
         model = TinyModelWithProjections(vocab_size=100, hidden_size=32)
         config = make_lora_config(max_steps=2)
 
-        model = configure_lora(model, config)
+        model, _ = configure_lora(model, config.method)
         optimizer = build_optimizer(model, config)
 
         # Store initial adapter parameters
@@ -279,7 +295,7 @@ class TestTinyLoRATraining:
         model = TinyModelWithProjections(vocab_size=100, hidden_size=32)
         config = make_lora_config(max_steps=2)
 
-        model = configure_lora(model, config)
+        model, _ = configure_lora(model, config.method)
         optimizer = build_optimizer(model, config)
 
         # Store initial base parameters
@@ -324,7 +340,7 @@ class TestTinyLoRATraining:
         model = TinyModelWithProjections(vocab_size=100, hidden_size=32)
         config = make_lora_config(max_steps=4)
 
-        model = configure_lora(model, config)
+        model, _ = configure_lora(model, config.method)
         optimizer = build_optimizer(model, config)
 
         dataset = TinyTokenDataset(num_samples=16, seq_length=32)

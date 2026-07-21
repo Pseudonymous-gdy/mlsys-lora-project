@@ -11,18 +11,17 @@ import pytest
 import torch
 import torch.nn as nn
 
-from training.optim import build_optimizer
+from data.gsm8k import GSM8KDataConfig
 from training.config import (
+    EvaluationConfig,
     ExperimentConfig,
     ExperimentIdentityConfig,
-    ModelConfig,
     MethodConfig,
-    TrainingConfig,
-    EvaluationConfig,
+    ModelConfig,
     OutputConfig,
+    TrainingConfig,
 )
-from data.gsm8k import GSM8KDataConfig
-
+from training.optim import build_optimizer
 
 # ============================================================================
 # Helper models

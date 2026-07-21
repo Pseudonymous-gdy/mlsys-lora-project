@@ -10,7 +10,6 @@ Tests with tiny compatible models:
 """
 
 import pytest
-import torch
 import torch.nn as nn
 
 from methods.lora import (
@@ -19,14 +18,17 @@ from methods.lora import (
     validate_lora_trainability,
 )
 
-
 # ============================================================================
 # Helper models
 # ============================================================================
 
 
 class TinyTransformerLikeModel(nn.Module):
-    """A tiny model mimicking transformer module structure."""
+    """A tiny model mimicking transformer module structure.
+
+    The model also provides the minimal generation preparation API required
+    by PEFT when LoRA is configured with task_type="CAUSAL_LM".
+    """
 
     def __init__(self):
         super().__init__()
@@ -35,10 +37,25 @@ class TinyTransformerLikeModel(nn.Module):
         self.k_proj = nn.Linear(10, 5)
         self.v_proj = nn.Linear(10, 5)
         self.o_proj = nn.Linear(5, 10)
+
         # Simulate MLP layers
         self.gate_proj = nn.Linear(10, 20)
         self.up_proj = nn.Linear(10, 20)
         self.down_proj = nn.Linear(20, 10)
+
+    def prepare_inputs_for_generation(self, input_ids, **kwargs):
+        """Return minimal generation inputs expected by PEFT CAUSAL_LM.
+
+        The tests in this file do not perform text generation. This method
+        exists only to satisfy the causal-language-model interface expected
+        by PeftModelForCausalLM during LoRA wrapping.
+        """
+        model_inputs = {"input_ids": input_ids}
+
+        if "attention_mask" in kwargs:
+            model_inputs["attention_mask"] = kwargs["attention_mask"]
+
+        return model_inputs
 
 
 class ModelWithoutTargetModules(nn.Module):
@@ -64,6 +81,7 @@ class TestLoraMethodConfig:
             target_modules=("q_proj", "k_proj", "v_proj", "o_proj"),
             bias="none",
         )
+
         assert config.rank == 16
         assert config.alpha == 32
         assert config.dropout == 0.05
@@ -77,6 +95,7 @@ class TestLoraMethodConfig:
             target_modules=("q_proj",),
             bias="none",
         )
+
         assert isinstance(config.target_modules, tuple)
 
 
@@ -98,10 +117,16 @@ class TestResolveLoraTargetModules:
     def test_rejects_empty_config(self):
         model = TinyTransformerLikeModel()
 
-        with pytest.raises(ValueError, match="target_modules configuration is empty"):
+        with pytest.raises(
+            ValueError,
+            match="target_modules configuration is empty",
+        ):
             resolve_lora_target_modules(model, ())
 
-        with pytest.raises(ValueError, match="target_modules configuration is empty"):
+        with pytest.raises(
+            ValueError,
+            match="target_modules configuration is empty",
+        ):
             resolve_lora_target_modules(model, tuple())
 
     def test_missing_target_fails(self):
@@ -144,6 +169,7 @@ class TestResolveLoraTargetModules:
         requested = ("q_proj", "k_proj")
 
         validated = resolve_lora_target_modules(model, requested)
+
         assert validated == requested
 
 
@@ -170,7 +196,7 @@ class TestValidateLoraTrainability:
         )
         peft_model = get_peft_model(model, lora_config)
 
-        validate_lora_trainability(peft_model)  # Should not raise
+        validate_lora_trainability(peft_model)
 
     def test_detects_non_adapter_trainable_params(self):
         """If base model params are trainable, should fail."""
@@ -189,15 +215,19 @@ class TestValidateLoraTrainability:
         )
         peft_model = get_peft_model(model, lora_config)
 
-        # Manually unfreeze a base model parameter
+        # Manually unfreeze a base-model parameter.
         peft_model.base_model.model.q_proj.weight.requires_grad = True
 
-        with pytest.raises(ValueError, match="unexpected trainable"):
+        with pytest.raises(
+            ValueError,
+            match=r"non-adapter trainable parameters",
+        ):
             validate_lora_trainability(peft_model)
 
     def test_detects_no_trainable_params(self):
         """If no params are trainable, should fail."""
         model = TinyTransformerLikeModel()
+
         for param in model.parameters():
             param.requires_grad = False
 
@@ -209,12 +239,15 @@ class TestValidateLoraTrainability:
         pytest.importorskip("peft")
 
         from peft import LoraConfig, get_peft_model
+
         from methods.common import count_parameters
 
         # Full FT model
         full_ft_model = TinyTransformerLikeModel()
+
         for param in full_ft_model.parameters():
             param.requires_grad = True
+
         full_ft_stats = count_parameters(full_ft_model)
 
         # LoRA model
@@ -230,4 +263,7 @@ class TestValidateLoraTrainability:
         peft_model = get_peft_model(lora_model, lora_config)
         lora_stats = count_parameters(peft_model)
 
-        assert lora_stats.trainable_parameters < full_ft_stats.trainable_parameters
+        assert (
+            lora_stats.trainable_parameters
+            < full_ft_stats.trainable_parameters
+        )

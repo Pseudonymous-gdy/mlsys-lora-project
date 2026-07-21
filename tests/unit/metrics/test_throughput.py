@@ -9,13 +9,12 @@ Tests:
 - double start and early finish fail
 """
 
-import pytest
-import time
-import torch
 from unittest.mock import patch
 
-from metrics.throughput import ThroughputMetrics, ThroughputTracker
+import pytest
+import torch
 
+from metrics.throughput import ThroughputMetrics, ThroughputTracker
 
 # ============================================================================
 # ThroughputMetrics tests

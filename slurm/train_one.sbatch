@@ -26,7 +26,7 @@ export PROJECT_ROOT=/hpc2hdd/home/dsaa4012_002/mlsys-lora-project
 export PROJECT_ENV=/hpc2hdd/home/dsaa4012_002/.conda/envs/project
 
 export PATH="$PROJECT_ENV/bin:$PATH"
-export PYTHONPATH="$PROJECT_ROOT/src:${PYTHONPATH:-}"
+export PYTHONPATH="$PROJECT_ROOT/src"
 
 export HF_HOME="$PROJECT_ROOT/data/hf_cache"
 export HF_DATASETS_CACHE="$HF_HOME/datasets"

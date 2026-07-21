@@ -9,21 +9,18 @@ Tests:
 - atomic writing
 """
 
-import pytest
 import json
 import tempfile
 from pathlib import Path
 
+import pytest
+
 from training.results import (
-    StopReason,
-    TrainingResult,
-    EvaluationResult,
     ExperimentResult,
     experiment_result_to_dict,
     validate_experiment_result,
     write_json_atomic,
 )
-
 
 # ============================================================================
 # Helper functions

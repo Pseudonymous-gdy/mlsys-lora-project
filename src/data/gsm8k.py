@@ -10,7 +10,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
-
 DEFAULT_SYSTEM_PROMPT = (
     "You are a careful math solver. Show the reasoning clearly and finish with "
     'a separate line in the exact form "#### <answer>".'
