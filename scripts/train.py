@@ -3,8 +3,12 @@
 Train script - lean entry point for running experiments.
 
 Usage:
-    python scripts/train.py --config configs/generated/smoke_lora_r16.yaml
-    python scripts/train.py --config configs/generated/main_lora.yaml --allow-overwrite
+    python scripts/train.py \
+        --config configs/generated/smoke_lora.yaml
+
+    python scripts/train.py \
+        --config configs/generated/main_lora.yaml \
+        --allow-overwrite
 """
 
 from __future__ import annotations

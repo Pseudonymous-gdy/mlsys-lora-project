@@ -1,90 +1,147 @@
 #!/bin/bash
-# ============================================================================
-# Smoke test submission script
-#
-# Submits LoRA and Full FT smoke tests sequentially.
-# Full FT is only submitted after LoRA smoke test is accepted.
-# ============================================================================
 
-set -e
+set -euo pipefail
 
 PROJECT_ROOT=/hpc2hdd/home/dsaa4012_002/mlsys-lora-project
 SLURM_SCRIPT="$PROJECT_ROOT/slurm/train_one.sbatch"
 
-echo "===== Submitting Smoke Tests ====="
-echo "Date: $(date)"
-echo "Project: $PROJECT_ROOT"
-
-# ============================================================================
-# 1. Submit LoRA-16 smoke test
-# ============================================================================
-
-echo ""
-echo "----- Submitting LoRA-16 smoke test -----"
 LORA_CONFIG="$PROJECT_ROOT/configs/generated/smoke_lora.yaml"
-
-if [[ ! -f "$LORA_CONFIG" ]]; then
-  echo "ERROR: LoRA smoke config not found: $LORA_CONFIG"
-  exit 1
-fi
-
-LORA_JOB_ID=$(sbatch --parsable "$SLURM_SCRIPT" "$LORA_CONFIG")
-echo "LoRA smoke test submitted with job ID: $LORA_JOB_ID"
-
-# ============================================================================
-# 2. Wait for LoRA job to be accepted
-# ============================================================================
-
-echo "Waiting for LoRA job to be accepted..."
-sleep 5
-
-# Check if job is in the queue
-if squeue -j "$LORA_JOB_ID" &>/dev/null; then
-  echo "LoRA job $LORA_JOB_ID is in the queue."
-else
-  echo "WARNING: LoRA job $LORA_JOB_ID may have already completed or failed."
-fi
-
-# ============================================================================
-# 3. Submit Full FT smoke test
-# ============================================================================
-
-echo ""
-echo "----- Submitting Full FT smoke test -----"
 FULLFT_CONFIG="$PROJECT_ROOT/configs/generated/smoke_full_ft.yaml"
 
-if [[ ! -f "$FULLFT_CONFIG" ]]; then
-  echo "ERROR: Full FT smoke config not found: $FULLFT_CONFIG"
+LORA_RUN_ID=smoke_lora_lora_r16_l512_mb1_seed42
+FULLFT_RUN_ID=smoke_full_ft_full_ft_l512_mb1_seed42
+
+ALLOW_OVERWRITE="${ALLOW_OVERWRITE:-0}"
+
+case "$ALLOW_OVERWRITE" in
+  0|1)
+    ;;
+  *)
+    echo \
+      "ERROR: ALLOW_OVERWRITE must be 0 or 1, got: $ALLOW_OVERWRITE" \
+      >&2
+    exit 1
+    ;;
+esac
+
+cd "$PROJECT_ROOT"
+
+mkdir -p \
+  "$PROJECT_ROOT/logs" \
+  "$PROJECT_ROOT/results" \
+  "$PROJECT_ROOT/checkpoints"
+
+for required_file in \
+  "$SLURM_SCRIPT" \
+  "$LORA_CONFIG" \
+  "$FULLFT_CONFIG"
+do
+  if [[ ! -f "$required_file" ]]; then
+    echo "ERROR: Missing file: $required_file" >&2
+    exit 1
+  fi
+done
+
+branch="$(
+  git branch --show-current
+)"
+
+if [[ "$branch" != "dguo" ]]; then
+  echo \
+    "ERROR: Expected branch dguo, found: $branch" \
+    >&2
   exit 1
 fi
 
-FULLFT_JOB_ID=$(sbatch --parsable "$SLURM_SCRIPT" "$FULLFT_CONFIG")
-echo "Full FT smoke test submitted with job ID: $FULLFT_JOB_ID"
+if ! git diff --quiet; then
+  echo "ERROR: Working tree has tracked modifications." >&2
+  git diff --stat >&2
+  exit 1
+fi
 
-# ============================================================================
-# Summary
-# ============================================================================
+if ! git diff --cached --quiet; then
+  echo "ERROR: Staging area has uncommitted changes." >&2
+  git diff --cached --stat >&2
+  exit 1
+fi
 
-echo ""
-echo "===== Smoke Test Summary ====="
-echo "LoRA job ID:    $LORA_JOB_ID"
+local_head="$(
+  git rev-parse HEAD
+)"
+remote_head="$(
+  git rev-parse origin/dguo
+)"
+
+if [[ "$local_head" != "$remote_head" ]]; then
+  echo "ERROR: Local HEAD differs from origin/dguo." >&2
+  echo "Local:  $local_head" >&2
+  echo "Remote: $remote_head" >&2
+  exit 1
+fi
+
+echo "===== Smoke Submission Preflight ====="
+date
+echo "Branch: $branch"
+echo "Commit: $local_head"
+echo "Allow overwrite: $ALLOW_OVERWRITE"
+
+sha256sum \
+  "$LORA_CONFIG" \
+  "$FULLFT_CONFIG"
+
+echo
+echo "===== Submitting LoRA Smoke ====="
+
+lora_job_raw="$(
+  sbatch \
+    --parsable \
+    "$SLURM_SCRIPT" \
+    "$LORA_CONFIG" \
+    "$ALLOW_OVERWRITE"
+)"
+
+LORA_JOB_ID="${lora_job_raw%%;*}"
+
+echo "LoRA job ID: $LORA_JOB_ID"
+
+echo
+echo "===== Submitting Full FT Smoke ====="
+
+fullft_job_raw="$(
+  sbatch \
+    --parsable \
+    --dependency="afterok:${LORA_JOB_ID}" \
+    "$SLURM_SCRIPT" \
+    "$FULLFT_CONFIG" \
+    "$ALLOW_OVERWRITE"
+)"
+
+FULLFT_JOB_ID="${fullft_job_raw%%;*}"
+
 echo "Full FT job ID: $FULLFT_JOB_ID"
-echo ""
-echo "Monitor jobs with: squeue -u \$USER"
-echo ""
-echo "Check logs after completion:"
+echo "Dependency: afterok:$LORA_JOB_ID"
+
+echo
+echo "===== Smoke Submission Summary ====="
+echo "LoRA:"
+echo "  job: $LORA_JOB_ID"
+echo "  result: results/$LORA_RUN_ID/result.json"
+echo "  checkpoint: checkpoints/$LORA_RUN_ID/final/"
+echo
+echo "Full FT:"
+echo "  job: $FULLFT_JOB_ID"
+echo "  result: results/$FULLFT_RUN_ID/result.json"
+echo "  checkpoint: checkpoints/$FULLFT_RUN_ID/final/"
+echo
+echo "Monitor:"
+echo "  squeue -j ${LORA_JOB_ID},${FULLFT_JOB_ID}"
+echo
+echo "Accounting:"
+echo "  sacct -j ${LORA_JOB_ID},${FULLFT_JOB_ID} \\"
+echo "    --format=JobID,JobName,State,ExitCode,Elapsed,MaxRSS,AllocTRES"
+echo
+echo "Logs:"
 echo "  logs/train_one_${LORA_JOB_ID}.out"
 echo "  logs/train_one_${LORA_JOB_ID}.err"
 echo "  logs/train_one_${FULLFT_JOB_ID}.out"
 echo "  logs/train_one_${FULLFT_JOB_ID}.err"
-echo ""
-echo "Check results after completion:"
-echo "  results/smoke_lora/"
-echo "  results/smoke_full_ft/"
-echo ""
-echo "Expected artifacts per run:"
-echo "  resolved_config.yaml"
-echo "  metadata.json"
-echo "  predictions.jsonl"
-echo "  result.json"
-echo "  checkpoints/<run_id>/final/"

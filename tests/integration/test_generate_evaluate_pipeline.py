@@ -264,16 +264,16 @@ class TestEvaluateModelContract:
     """Tests for the evaluate_model() contract in experiment.py."""
 
     def _make_eval_config(self, max_examples=None):
+        from data.gsm8k import GSM8KDataConfig
         from training.config import (
+            EvaluationConfig,
             ExperimentConfig,
             ExperimentIdentityConfig,
-            ModelConfig,
             MethodConfig,
-            TrainingConfig,
-            EvaluationConfig,
+            ModelConfig,
             OutputConfig,
+            TrainingConfig,
         )
-        from data.gsm8k import GSM8KDataConfig
 
         return ExperimentConfig(
             experiment=ExperimentIdentityConfig(name="test", sweep="none"),
@@ -437,8 +437,9 @@ class TestEvaluateModelContract:
 
     def test_record_count_mismatch_raises(self):
         """evaluate_model should raise RuntimeError if record count != example count."""
-        from training.experiment import evaluate_model
         from unittest.mock import patch
+
+        from training.experiment import evaluate_model
 
         model = TinyGenerationModel(vocab_size=100, hidden_size=32)
         tokenizer = TinyTokenizer(vocab_size=100)
@@ -540,16 +541,16 @@ class TestExperimentRunnerControlFlow:
     """Tests for ExperimentRunner orchestration behavior."""
 
     def _make_minimal_config(self):
+        from data.gsm8k import GSM8KDataConfig
         from training.config import (
+            EvaluationConfig,
             ExperimentConfig,
             ExperimentIdentityConfig,
-            ModelConfig,
             MethodConfig,
-            TrainingConfig,
-            EvaluationConfig,
+            ModelConfig,
             OutputConfig,
+            TrainingConfig,
         )
-        from data.gsm8k import GSM8KDataConfig
 
         return ExperimentConfig(
             experiment=ExperimentIdentityConfig(name="test", sweep="none"),
@@ -703,8 +704,9 @@ class TestExperimentRunnerControlFlow:
 
     def test_component_build_oom_writes_oom_result(self):
         """Component build OOM → writes status=oom result and returns it."""
-        from training.experiment import ExperimentRunner
         from unittest.mock import patch
+
+        from training.experiment import ExperimentRunner
 
         config = self._make_minimal_config()
 
@@ -734,8 +736,9 @@ class TestExperimentRunnerControlFlow:
 
     def test_component_build_valueerror_writes_failed_result(self):
         """Component build ValueError → writes status=failed then re-raises."""
-        from training.experiment import ExperimentRunner
         from unittest.mock import patch
+
+        from training.experiment import ExperimentRunner
 
         config = self._make_minimal_config()
 
@@ -761,8 +764,9 @@ class TestExperimentRunnerControlFlow:
 
     def test_training_oom_writes_oom_result(self):
         """Training OOM → writes status=oom result."""
+        from unittest.mock import MagicMock, patch
+
         from training.experiment import ExperimentRunner
-        from unittest.mock import patch, MagicMock
 
         config = self._make_minimal_config()
 
@@ -803,8 +807,9 @@ class TestExperimentRunnerControlFlow:
 
     def test_evaluation_failure_writes_failed_result(self):
         """Evaluation failure → writes status=failed then re-raises."""
+        from unittest.mock import MagicMock, patch
+
         from training.experiment import ExperimentRunner
-        from unittest.mock import patch, MagicMock
 
         config = self._make_minimal_config()
 
@@ -854,8 +859,9 @@ class TestExperimentRunnerControlFlow:
 
     def test_keyboard_interrupt_not_captured_as_failed(self):
         """KeyboardInterrupt should NOT be captured as a failed result."""
+        from unittest.mock import MagicMock, patch
+
         from training.experiment import ExperimentRunner
-        from unittest.mock import patch, MagicMock
 
         config = self._make_minimal_config()
 
