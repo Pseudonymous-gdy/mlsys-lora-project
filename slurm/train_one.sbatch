@@ -90,9 +90,7 @@ hostname
 echo "===== Date ====="
 date
 
-echo "===== Git ====="
-git status --short --branch
-git rev-parse HEAD
+
 
 echo "===== Environment ====="
 echo "PROJECT_ROOT=$PROJECT_ROOT"
