@@ -9,6 +9,7 @@ Validates:
 
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import torch
@@ -25,7 +26,6 @@ from training.config import (
     TrainingConfig,
 )
 from training.optim import build_optimizer
-from types import SimpleNamespace
 
 # ============================================================================
 # Tiny model with linear projections

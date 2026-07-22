@@ -117,12 +117,6 @@ class TrainerEngine:
                 f"{missing_keys}"
             )
 
-        inputs = {
-            key: value.to(self.device)
-            for key, value in batch.items()
-            if key != "num_non_padding_tokens"
-        }
-
         return inputs, num_non_padding_tokens
 
     @contextmanager
@@ -338,10 +332,6 @@ class TrainerEngine:
                 optimizer_steps,
                 trained_non_padding_tokens,
             )
-        
-        training_time_seconds = (
-            time.perf_counter() - training_start_time
-        )
 
         # Compute final metrics
         if final_loss is None or loss_count == 0:
@@ -352,6 +342,10 @@ class TrainerEngine:
         mean_loss = loss_sum / loss_count
 
         throughput_metrics = throughput_tracker.finish()
+        
+        training_time_seconds = (
+            time.perf_counter() - training_start_time
+        )
 
         memory_metrics = self.memory_tracker.snapshot()
 

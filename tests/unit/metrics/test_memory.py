@@ -162,15 +162,33 @@ class TestIsCudaOom:
         assert is_cuda_oom(error) is True
 
     def test_out_of_memory_error(self):
+        # Plain "Out of memory" without "cuda" is NOT classified as CUDA OOM
+        # to avoid matching CPU / filesystem / application memory errors.
         error = RuntimeError("Out of memory")
-        assert is_cuda_oom(error) is True
+        assert is_cuda_oom(error) is False
 
     def test_alloc_error(self):
+        # Plain "alloc" without "cuda" is NOT classified as CUDA OOM.
         error = RuntimeError("Error in alloc")
-        assert is_cuda_oom(error) is True
+        assert is_cuda_oom(error) is False
 
     def test_not_enough_memory_error(self):
+        # Plain "Not enough memory" without "cuda" is NOT classified as CUDA OOM.
         error = RuntimeError("Not enough memory for operation")
+        assert is_cuda_oom(error) is False
+
+    def test_cuda_error_not_oom(self):
+        # "CUDA error" without an OOM signal is NOT classified as CUDA OOM.
+        error = RuntimeError("CUDA error: invalid argument")
+        assert is_cuda_oom(error) is False
+
+    def test_cuda_oom_with_alloc(self):
+        # "CUDA" + OOM signal → True
+        error = RuntimeError("CUDA out of memory: CUBLAS_STATUS_ALLOC_FAILED")
+        assert is_cuda_oom(error) is True
+
+    def test_cuda_out_of_memory_on_device(self):
+        error = RuntimeError("CUDA out of memory on device 0")
         assert is_cuda_oom(error) is True
 
     def test_non_oom_runtime_error(self):
@@ -185,13 +203,34 @@ class TestIsCudaOom:
         error = TypeError("Type error")
         assert is_cuda_oom(error) is False
 
-    def test_cuda_error(self):
-        error = RuntimeError("CUDA error: invalid argument")
-        assert is_cuda_oom(error) is True
-
     def test_case_insensitive(self):
         error = RuntimeError("cuda OUT OF MEMORY")
         assert is_cuda_oom(error) is True
 
     def test_none_error(self):
         assert is_cuda_oom(None) is False
+
+    def test_torch_cuda_oom_error(self):
+        """torch.cuda.OutOfMemoryError should always return True."""
+        error = torch.cuda.OutOfMemoryError("CUDA out of memory")
+        assert is_cuda_oom(error) is True
+
+    def test_illegal_memory_access(self):
+        """CUDA illegal memory access should NOT be classified as OOM."""
+        error = RuntimeError("CUDA error: illegal memory access")
+        assert is_cuda_oom(error) is False
+
+    def test_device_side_assert(self):
+        """CUDA device-side assert should NOT be classified as OOM."""
+        error = RuntimeError("CUDA error: device-side assert triggered")
+        assert is_cuda_oom(error) is False
+
+    def test_alloc_without_cuda(self):
+        """Generic alloc error without 'cuda' should NOT be classified as OOM."""
+        error = RuntimeError("failed to allocate memory")
+        assert is_cuda_oom(error) is False
+
+    def test_valueerror_out_of_memory(self):
+        """ValueError with 'out of memory' should NOT be classified as CUDA OOM."""
+        error = ValueError("out of memory")
+        assert is_cuda_oom(error) is False

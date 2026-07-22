@@ -270,10 +270,57 @@ class TestNaNRejection:
         with pytest.raises(ValueError, match="training_time_seconds"):
             validate_experiment_result(result)
 
+    def test_rejects_neg_inf_peak_reserved(self):
+        result = make_completed_result(overrides={"peak_reserved_memory_gb": float("-inf")})
+        with pytest.raises(ValueError, match="peak_reserved_memory_gb"):
+            validate_experiment_result(result)
+
     def test_allows_none_values(self):
         """None values should be allowed for optional fields."""
         result = make_completed_result(overrides={"peak_memory_gb": None})
         validate_experiment_result(result)  # Should not raise
+
+
+# ============================================================================
+# Non-positive metric rejection tests
+# ============================================================================
+
+
+class TestNonPositiveMetricRejection:
+    """Completed runs must have positive throughput and training time."""
+
+    def test_rejects_zero_tokens_per_second(self):
+        result = make_completed_result(overrides={"tokens_per_second": 0.0})
+        with pytest.raises(ValueError, match="tokens_per_second"):
+            validate_experiment_result(result)
+
+    def test_rejects_negative_tokens_per_second(self):
+        result = make_completed_result(overrides={"tokens_per_second": -100.0})
+        with pytest.raises(ValueError, match="tokens_per_second"):
+            validate_experiment_result(result)
+
+    def test_rejects_zero_training_time(self):
+        result = make_completed_result(overrides={"training_time_seconds": 0.0})
+        with pytest.raises(ValueError, match="training_time_seconds"):
+            validate_experiment_result(result)
+
+    def test_rejects_negative_training_time(self):
+        result = make_completed_result(overrides={"training_time_seconds": -5.0})
+        with pytest.raises(ValueError, match="training_time_seconds"):
+            validate_experiment_result(result)
+
+    def test_rejects_negative_peak_memory(self):
+        result = make_completed_result(overrides={"peak_memory_gb": -1.0})
+        with pytest.raises(ValueError, match="peak_memory_gb"):
+            validate_experiment_result(result)
+
+    def test_rejects_reserved_less_than_allocated(self):
+        result = make_completed_result(overrides={
+            "peak_memory_gb": 5.0,
+            "peak_reserved_memory_gb": 3.0,
+        })
+        with pytest.raises(ValueError, match="peak_reserved_memory_gb"):
+            validate_experiment_result(result)
 
 
 # ============================================================================
@@ -396,3 +443,69 @@ class TestAtomicWriting:
         assert loaded == data
 
         path.unlink()
+
+    def test_write_json_atomic_overwrites_existing(self):
+        """write_json_atomic should atomically replace an existing file."""
+        tmp = tempfile.NamedTemporaryFile(suffix=".json", delete=False)
+        path = Path(tmp.name)
+        tmp.close()
+
+        # Write initial content
+        write_json_atomic({"version": 1}, path)
+        with open(path, "r") as f:
+            assert json.load(f)["version"] == 1
+
+        # Overwrite with new content
+        write_json_atomic({"version": 2}, path)
+        with open(path, "r") as f:
+            loaded = json.load(f)
+
+        assert loaded["version"] == 2
+        path.unlink()
+
+    def test_write_json_atomic_cleans_up_on_failure(self):
+        """If writing fails, the temporary file should be cleaned up."""
+        tmp_dir = tempfile.mkdtemp()
+
+        # Create an unwriteable directory to trigger failure
+        bad_path = Path(tmp_dir) / "readonly" / "result.json"
+        bad_path.parent.mkdir()
+
+        # Make parent directory read-only to cause write failure
+        import os
+        os.chmod(bad_path.parent, 0o000)
+
+        try:
+            with pytest.raises(Exception):
+                write_json_atomic({"test": "value"}, bad_path)
+
+            # No leftover temp files in the parent directory
+            remaining = list(bad_path.parent.glob(".result_*.json.tmp"))
+            assert len(remaining) == 0
+        finally:
+            os.chmod(bad_path.parent, 0o755)
+            import shutil
+            shutil.rmtree(tmp_dir)
+
+    def test_write_json_atomic_no_half_written_file(self):
+        """On failure, no partial target file should exist."""
+        tmp_dir = tempfile.mkdtemp()
+        path = Path(tmp_dir) / "result.json"
+
+        # Ensure target doesn't exist initially
+        assert not path.exists()
+
+        # Trigger a failure by using a circular reference (can't be serialized even with default=str)
+        bad_data: dict = {}
+        bad_data["self"] = bad_data  # Circular reference
+
+        with pytest.raises((TypeError, ValueError)):
+            write_json_atomic(bad_data, path)
+
+        # Target file should NOT exist (no half-written file)
+        assert not path.exists()
+        # No leftover temp files in the directory
+        remaining = list(Path(tmp_dir).glob(".result_*.json.tmp"))
+        assert len(remaining) == 0
+        import shutil
+        shutil.rmtree(tmp_dir)

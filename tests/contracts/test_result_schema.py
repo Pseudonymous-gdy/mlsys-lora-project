@@ -9,7 +9,7 @@ Validates:
 
 import json
 
-# import sys
+import pytest
 import tempfile
 from pathlib import Path
 
@@ -261,3 +261,113 @@ class TestResultSchema:
         data = experiment_result_to_dict(result)
 
         assert data["rank"] is None
+
+
+# ============================================================================
+# Strict validation contract tests
+# ============================================================================
+
+
+class TestStrictValidation:
+    """Tests for strict validation rules in validate_experiment_result."""
+
+    def test_exact_match_negative_fails(self):
+        """exact_match < 0 should fail for completed runs."""
+        from training.results import validate_experiment_result
+
+        result = make_completed_result(overrides={"exact_match": -0.1})
+        with pytest.raises(ValueError, match="exact_match"):
+            validate_experiment_result(result)
+
+    def test_exact_match_above_one_fails(self):
+        """exact_match > 1 should fail for completed runs."""
+        from training.results import validate_experiment_result
+
+        result = make_completed_result(overrides={"exact_match": 1.5})
+        with pytest.raises(ValueError, match="exact_match"):
+            validate_experiment_result(result)
+
+    def test_completed_with_error_type_fails(self):
+        """Completed result with error_type should fail."""
+        from training.results import validate_experiment_result
+
+        result = make_completed_result(overrides={"error_type": "SomeError"})
+        with pytest.raises(ValueError, match="error_type"):
+            validate_experiment_result(result)
+
+    def test_completed_with_error_message_fails(self):
+        """Completed result with error_message should fail."""
+        from training.results import validate_experiment_result
+
+        result = make_completed_result(overrides={"error_message": "Something went wrong"})
+        with pytest.raises(ValueError, match="error_message"):
+            validate_experiment_result(result)
+
+    def test_lora_rank_none_fails(self):
+        """LoRA with rank=None should fail."""
+        from training.results import validate_experiment_result
+
+        result = make_completed_result(overrides={"method": "lora", "rank": None})
+        with pytest.raises(ValueError, match="rank"):
+            validate_experiment_result(result)
+
+    def test_full_ft_rank_non_none_fails(self):
+        """Full FT with rank set should fail."""
+        from training.results import validate_experiment_result
+
+        result = make_completed_result(overrides={"method": "full_ft", "rank": 16})
+        with pytest.raises(ValueError, match="rank"):
+            validate_experiment_result(result)
+
+    def test_total_less_than_trainable_fails(self):
+        """total_parameters < trainable_parameters should fail."""
+        from training.results import validate_experiment_result
+
+        result = make_completed_result(overrides={
+            "total_parameters": 100,
+            "trainable_parameters": 200,
+        })
+        with pytest.raises(ValueError, match="total_parameters"):
+            validate_experiment_result(result)
+
+    def test_failed_missing_error_type_fails(self):
+        """Failed result without error_type should fail."""
+        from training.results import validate_experiment_result
+
+        result = make_completed_result(overrides={
+            "status": "failed",
+            "error_type": None,
+            "error_message": "Something broke",
+            "peak_memory_gb": None,
+            "tokens_per_second": None,
+            "training_time_seconds": None,
+            "exact_match": None,
+            "trainable_parameters": None,
+            "total_parameters": None,
+            "checkpoint_size_mb": None,
+            "trained_non_padding_tokens": None,
+            "optimizer_steps": None,
+        })
+        with pytest.raises(ValueError, match="error_type"):
+            validate_experiment_result(result)
+
+    def test_oom_missing_error_message_fails(self):
+        """OOM result without error_message should fail."""
+        from training.results import validate_experiment_result
+
+        result = make_completed_result(overrides={
+            "status": "oom",
+            "error_type": "OOM",
+            "error_message": None,
+            "peak_memory_gb": None,
+            "tokens_per_second": None,
+            "training_time_seconds": None,
+            "exact_match": None,
+            "trainable_parameters": None,
+            "total_parameters": None,
+            "checkpoint_size_mb": None,
+            "trained_non_padding_tokens": None,
+            "optimizer_steps": None,
+        })
+        with pytest.raises(ValueError, match="error_message"):
+            validate_experiment_result(result)

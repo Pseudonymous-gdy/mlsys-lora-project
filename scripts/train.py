@@ -51,15 +51,17 @@ def main() -> int:
     config = load_experiment_config(args.config)
 
     # Create runner and execute
-    runner = ExperimentRunner(config=config, repository_root=repository_root)
+    runner = ExperimentRunner(
+        config=config,
+        repository_root=repository_root,
+        allow_overwrite=args.allow_overwrite,
+    )
 
     try:
         result = runner.run()
-    except ValueError as e:
-        if "Completed result already exists" in str(e) and not args.allow_overwrite:
-            print(f"Error: {e}", file=sys.stderr)
-            return 1
-        raise
+    except FileExistsError as error:
+        print(f"Error: {error}", file=sys.stderr)
+        return 1
 
     # Print result JSON to stdout
     from training.results import experiment_result_to_dict

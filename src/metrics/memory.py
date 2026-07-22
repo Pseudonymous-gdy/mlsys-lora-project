@@ -76,18 +76,32 @@ def is_cuda_oom(error: BaseException) -> bool:
 
     Avoids classifying arbitrary RuntimeError instances as OOM.
     Supports stable OOM result generation for batch-feasibility sweeps.
+
+    Explicitly returns False for:
+    - CUDA error: illegal memory access
+    - CUDA error: device-side assert triggered
+    - invalid allocator configuration
+    - failed to allocate output filename
+    - plain CPU / filesystem / application memory errors
     """
+    if isinstance(error, torch.cuda.OutOfMemoryError):
+        return True
+
     if not isinstance(error, RuntimeError):
         return False
 
-    error_msg = str(error).lower()
+    message = str(error).lower()
 
-    oom_indicators = [
+    # Positive indicators — require "cuda" AND an OOM signal to avoid
+    # matching CPU, filesystem, or generic application memory errors.
+    oom_signals = (
         "out of memory",
-        "cuda out of memory",
-        "cuda error",
+        "out of memory on device",
+        "cublas_status_alloc_failed",
         "not enough memory",
-        "alloc",
-    ]
+    )
 
-    return any(indicator in error_msg for indicator in oom_indicators)
+    has_cuda = "cuda" in message
+    has_oom = any(signal in message for signal in oom_signals)
+
+    return has_cuda and has_oom

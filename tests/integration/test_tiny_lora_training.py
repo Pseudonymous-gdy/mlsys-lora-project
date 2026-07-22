@@ -7,6 +7,8 @@ Validates:
 - Base parameters remain frozen
 """
 
+from types import SimpleNamespace
+
 import pytest
 import torch
 from torch.utils.data import DataLoader, Dataset
@@ -25,7 +27,6 @@ from training.config import (
 )
 from training.engine import TrainerEngine
 from training.optim import build_optimizer
-from types import SimpleNamespace
 
 # ============================================================================
 # Synthetic dataset

@@ -92,11 +92,32 @@ def build_run_id(config: ExperimentConfig) -> str:
 
     run_id = "_".join(parts)
 
-    # Reject unsafe characters
-    if re.search(r'[\\/<>:"|?*]', run_id):
+    # Whitelist: must start with alphanumeric, then only alphanumerics, dots, underscores, hyphens
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", run_id):
         raise ValueError(f"run_id contains unsafe characters: {run_id}")
 
     return run_id
+
+
+def _require_within(
+    path: Path,
+    parent: Path,
+    *,
+    label: str,
+) -> Path:
+    """Ensure *path* resolves strictly inside *parent*."""
+    resolved_path = path.resolve()
+    resolved_parent = parent.resolve()
+
+    try:
+        resolved_path.relative_to(resolved_parent)
+    except ValueError as exc:
+        raise ValueError(
+            f"{label} escapes allowed root: "
+            f"{resolved_path}"
+        ) from exc
+
+    return resolved_path
 
 
 def build_run_paths(config: ExperimentConfig, repository_root: Path) -> RunPaths:
@@ -112,18 +133,29 @@ def build_run_paths(config: ExperimentConfig, repository_root: Path) -> RunPaths
 
     run_id = build_run_id(config)
 
-    # Resolve paths relative to repository root
-    results_root = (repository_root / config.output.results_dir).resolve()
-    checkpoints_root = (repository_root / config.output.checkpoints_dir).resolve()
+    # Resolve and validate root directories
+    results_root = _require_within(
+        repository_root / config.output.results_dir,
+        repository_root,
+        label="results_dir",
+    )
+    checkpoints_root = _require_within(
+        repository_root / config.output.checkpoints_dir,
+        repository_root,
+        label="checkpoints_dir",
+    )
 
-    # Prevent path escape
-    if not str(results_root).startswith(str(repository_root)):
-        raise ValueError(f"results_dir escapes repository root: {config.output.results_dir}")
-    if not str(checkpoints_root).startswith(str(repository_root)):
-        raise ValueError(f"checkpoints_dir escapes repository root: {config.output.checkpoints_dir}")
-
-    result_dir = results_root / run_id
-    checkpoint_dir = checkpoints_root / run_id / "final"
+    # Validate run-specific paths
+    result_dir = _require_within(
+        results_root / run_id,
+        results_root,
+        label="result run directory",
+    )
+    checkpoint_dir = _require_within(
+        checkpoints_root / run_id / "final",
+        checkpoints_root,
+        label="checkpoint run directory",
+    )
 
     return RunPaths(
         run_id=run_id,
@@ -276,11 +308,17 @@ def evaluate_model(
     # Convert dataset to examples list
     examples = []
     for idx, item in enumerate(test_dataset):
+        if "reference_answer" not in item:
+            raise KeyError(
+                "Evaluation example is missing "
+                "'reference_answer'."
+            )
+
         examples.append({
-            "example_id": str(idx),
-            "question": item.get("question", ""),
-            "prompt": item["prompt"],
-            "reference_answer": item.get("answer", item.get("gold_answer", "")),
+            "example_id": str(item.get("example_id", idx)),
+            "question": str(item.get("question", "")),
+            "prompt": str(item["prompt"]),
+            "reference_answer": str(item["reference_answer"]),
         })
 
     # Optionally limit examples
@@ -289,7 +327,7 @@ def evaluate_model(
         examples = examples[:max_examples]
 
     # Generate predictions
-    start_time = time.time()
+    start_time = time.perf_counter()
     records = generate_predictions(
         model=model,
         tokenizer=tokenizer,
@@ -298,7 +336,14 @@ def evaluate_model(
         max_new_tokens=config.evaluation.max_new_tokens,
         generation_kwargs={"do_sample": config.evaluation.do_sample},
     )
-    generation_time = time.time() - start_time
+    generation_time = time.perf_counter() - start_time
+
+    # Validate record count
+    if len(records) != len(examples):
+        raise RuntimeError(
+            "Generation returned an unexpected "
+            "number of records."
+        )
 
     # Save predictions
     save_predictions_jsonl(records, output_path)
@@ -306,7 +351,11 @@ def evaluate_model(
     # Aggregate results
     total = len(records)
     correct = sum(1 for r in records if r.get("correct", False))
-    unparseable = sum(1 for r in records if not r.get("parseable", True))
+    unparseable = sum(
+        1
+        for record in records
+        if record.get("predicted_answer") is None
+    )
     exact_match = correct / total if total > 0 else 0.0
 
     return EvaluationResult(
@@ -335,9 +384,12 @@ class ExperimentRunner:
         self,
         config: ExperimentConfig,
         repository_root: Path,
+        *,
+        allow_overwrite: bool = False,
     ) -> None:
         self.config = config
         self.repository_root = Path(repository_root).resolve()
+        self.allow_overwrite = allow_overwrite
         self.run_paths = build_run_paths(config, self.repository_root)
 
     def _prepare_run_directory(self) -> None:
@@ -346,10 +398,12 @@ class ExperimentRunner:
 
         Responsibilities:
         - create result directory
-        - fail if completed result already exists
+        - fail if completed result already exists (unless allow_overwrite)
         - write resolved config before expensive work
         - do not silently overwrite completed experiments
         """
+        import shutil
+
         result_json = self.run_paths.result_json
 
         # Check for existing completed result
@@ -358,10 +412,18 @@ class ExperimentRunner:
                 with open(result_json, "r", encoding="utf-8") as f:
                     existing = json.load(f)
                 if existing.get("status") == "completed":
-                    raise ValueError(
-                        f"Completed result already exists: {result_json}. "
-                        "Use --allow-overwrite to override."
-                    )
+                    if not self.allow_overwrite:
+                        raise FileExistsError(
+                            f"Completed result already exists: {result_json}"
+                        )
+
+                    # Delete old run artifacts
+                    if self.run_paths.result_dir.exists():
+                        shutil.rmtree(self.run_paths.result_dir)
+
+                    checkpoint_run_dir = self.run_paths.checkpoint_dir.parent
+                    if checkpoint_run_dir.exists():
+                        shutil.rmtree(checkpoint_run_dir)
             except json.JSONDecodeError:
                 pass  # Corrupted file, will be overwritten
 
@@ -644,18 +706,18 @@ class ExperimentRunner:
         # Prepare run directory
         self._prepare_run_directory()
 
-        # Build components
-        self._components = self._build_components()
-
-        # Write metadata
-        metadata = collect_run_metadata(
-            self.config,
-            self._components,
-            self.repository_root,
-        )
-        write_json_atomic(metadata, self.run_paths.metadata_json)
-
         try:
+            # Build components
+            self._components = self._build_components()
+
+            # Write metadata
+            metadata = collect_run_metadata(
+                self.config,
+                self._components,
+                self.repository_root,
+            )
+            write_json_atomic(metadata, self.run_paths.metadata_json)
+
             # Train
             training_result = self._train(self._components)
 
@@ -680,6 +742,10 @@ class ExperimentRunner:
             return result
 
         except BaseException as e:
+            # KeyboardInterrupt and SystemExit should not be captured
+            if isinstance(e, (KeyboardInterrupt, SystemExit)):
+                raise
+
             # Classify error
             if is_cuda_oom(e):
                 result = self._build_oom_result(e)
@@ -693,7 +759,8 @@ class ExperimentRunner:
             )
 
             # Release references
-            del self._components
+            if hasattr(self, "_components"):
+                del self._components
 
             # Re-raise for non-OOM errors
             if not is_cuda_oom(e):
