@@ -620,8 +620,6 @@ class ExperimentRunner:
         - set unavailable metrics to None
         - record error type and concise message
         """
-        param_stats = self._components.model_bundle.parameter_stats if hasattr(self, '_components') else None
-
         return ExperimentResult(
             run_id=self.run_paths.run_id,
             experiment_name=self.config.experiment.name,
@@ -636,8 +634,8 @@ class ExperimentRunner:
             tokens_per_second=None,
             training_time_seconds=None,
             exact_match=None,
-            trainable_parameters=param_stats.trainable_parameters if param_stats else None,
-            total_parameters=param_stats.total_parameters if param_stats else None,
+            trainable_parameters=None,
+            total_parameters=None,
             checkpoint_size_mb=None,
             trained_non_padding_tokens=None,
             optimizer_steps=None,
@@ -665,8 +663,6 @@ class ExperimentRunner:
         - preserve diagnostic information
         - do not mark failed runs as completed
         """
-        param_stats = self._components.model_bundle.parameter_stats if hasattr(self, '_components') else None
-
         return ExperimentResult(
             run_id=self.run_paths.run_id,
             experiment_name=self.config.experiment.name,
@@ -681,8 +677,8 @@ class ExperimentRunner:
             tokens_per_second=None,
             training_time_seconds=None,
             exact_match=None,
-            trainable_parameters=param_stats.trainable_parameters if param_stats else None,
-            total_parameters=param_stats.total_parameters if param_stats else None,
+            trainable_parameters=None,
+            total_parameters=None,
             checkpoint_size_mb=None,
             trained_non_padding_tokens=None,
             optimizer_steps=None,

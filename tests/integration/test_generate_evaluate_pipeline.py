@@ -728,6 +728,8 @@ class TestExperimentRunnerControlFlow:
 
             assert data["status"] == "oom"
             assert data["error_type"] == "RuntimeError"
+            assert data["trainable_parameters"] is None
+            assert data["total_parameters"] is None
             assert result.status == "oom"
 
     def test_component_build_valueerror_writes_failed_result(self):
@@ -754,6 +756,8 @@ class TestExperimentRunnerControlFlow:
 
             assert data["status"] == "failed"
             assert data["error_type"] == "ValueError"
+            assert data["trainable_parameters"] is None
+            assert data["total_parameters"] is None
 
     def test_training_oom_writes_oom_result(self):
         """Training OOM → writes status=oom result."""
@@ -793,6 +797,8 @@ class TestExperimentRunnerControlFlow:
                 data = json.load(f)
 
             assert data["status"] == "oom"
+            assert data["trainable_parameters"] is None
+            assert data["total_parameters"] is None
             assert result.status == "oom"
 
     def test_evaluation_failure_writes_failed_result(self):
@@ -843,6 +849,8 @@ class TestExperimentRunnerControlFlow:
 
             assert data["status"] == "failed"
             assert data["error_type"] == "RuntimeError"
+            assert data["trainable_parameters"] is None
+            assert data["total_parameters"] is None
 
     def test_keyboard_interrupt_not_captured_as_failed(self):
         """KeyboardInterrupt should NOT be captured as a failed result."""
