@@ -1,10 +1,10 @@
 #!/bin/bash
 #SBATCH --job-name=train_one
-#SBATCH --partition=a40
+#SBATCH --partition=debug
 #SBATCH --output=/hpc2hdd/home/dsaa4012_002/mlsys-lora-project/logs/train_one_%j.out
 #SBATCH --error=/hpc2hdd/home/dsaa4012_002/mlsys-lora-project/logs/train_one_%j.err
-#SBATCH --time=04:00:00
-#SBATCH --gres=gpu:a40:1
+#SBATCH --time=00:29:59
+#SBATCH --gres=gpu:a40
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
 
