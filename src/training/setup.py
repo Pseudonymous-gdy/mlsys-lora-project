@@ -189,10 +189,11 @@ def load_base_model(
     Responsibilities:
     - call AutoModelForCausalLM.from_pretrained
     - pass model name and pinned revision
-    - pass selected dtype
-    - pass the selected attention implementation when configured
-    - move or map the model to the single CUDA device
-    - set use_cache=False for training
+    - pass the selected dtype
+    - pass the selected attention implementation
+    when configured
+    - move the model to the single CUDA device
+    - leave runtime forward options to the training loop
     - return an unmodified base model
 
     The fallback model must not be selected silently.
@@ -201,9 +202,10 @@ def load_base_model(
 
     model_kwargs: dict[str, Any] = {
         "revision": config.model.revision,
-        "trust_remote_code": config.model.trust_remote_code,
-        "torch_dtype": dtype,
-        "use_cache": False,  # Disable KV cache for training
+        "trust_remote_code": (
+            config.model.trust_remote_code
+        ),
+        "dtype": dtype,
     }
 
     if config.model.attention_backend is not None:
