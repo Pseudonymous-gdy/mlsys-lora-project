@@ -121,18 +121,134 @@ class TestThroughputTracker:
             with pytest.raises((RuntimeError, ValueError)):
                 tracker.finish()
 
-    def test_warmup_steps_tracking(self):
-        """Optimizer step counter should track warmup completion."""
+    def test_warmup_tokens_and_time_are_excluded(self):
+        """Warmup optimizer steps should not enter throughput metrics."""
         device = torch.device("cpu")
-        tracker = ThroughputTracker(device, warmup_optimizer_steps=3)
+        tracker = ThroughputTracker(
+            device,
+            warmup_optimizer_steps=2,
+        )
+
+        with patch(
+            "metrics.throughput.time.perf_counter"
+        ) as mock_time:
+            # Timer starts after step 2 and ends at finish().
+            mock_time.side_effect = [100.0, 102.0]
+
+            tracker.start()
+
+            tracker.step()
+            tracker.record_tokens(100)
+
+            tracker.step()
+            tracker.record_tokens(200)
+
+            tracker.step()
+            tracker.record_tokens(300)
+
+            tracker.step()
+            tracker.record_tokens(400)
+
+            metrics = tracker.finish()
+
+        assert tracker._optimizer_steps == 4
+        assert metrics.measured_tokens == 700
+        assert metrics.measured_seconds == pytest.approx(2.0)
+        assert metrics.tokens_per_second == pytest.approx(350.0)
+        assert metrics.warmup_optimizer_steps == 2
+
+    def test_step_before_start_fails(self):
+        """Optimizer steps cannot be recorded before tracker start."""
+        tracker = ThroughputTracker(
+            torch.device("cpu"),
+            warmup_optimizer_steps=0,
+        )
+
+        with pytest.raises(
+            RuntimeError,
+            match="before start",
+        ):
+            tracker.step()
+
+    def test_finish_before_warmup_completes_fails(self):
+        """Finishing before all warmup steps should fail."""
+        tracker = ThroughputTracker(
+            torch.device("cpu"),
+            warmup_optimizer_steps=2,
+        )
 
         tracker.start()
+        tracker.step()
         tracker.record_tokens(100)
-        tracker.step()
-        tracker.step()
-        tracker.step()
 
-        assert tracker._optimizer_steps == 3
+        with pytest.raises(
+            RuntimeError,
+            match="warmup",
+        ):
+            tracker.finish()
+
+    def test_finish_without_post_warmup_tokens_fails(self):
+        """Completing warmup alone does not produce throughput data."""
+        tracker = ThroughputTracker(
+            torch.device("cpu"),
+            warmup_optimizer_steps=2,
+        )
+
+        with patch(
+            "metrics.throughput.time.perf_counter",
+            return_value=100.0,
+        ):
+            tracker.start()
+
+            tracker.step()
+            tracker.record_tokens(100)
+
+            tracker.step()
+            tracker.record_tokens(200)
+
+            with pytest.raises(
+                RuntimeError,
+                match="No post-warmup tokens",
+            ):
+                tracker.finish()
+
+    def test_negative_warmup_steps_rejected(self):
+        """Warmup optimizer step count must be non-negative."""
+        with pytest.raises(
+            ValueError,
+            match="non-negative",
+        ):
+            ThroughputTracker(
+                torch.device("cpu"),
+                warmup_optimizer_steps=-1,
+            )
+
+    def test_cuda_synchronization_after_warmup(self):
+        """CUDA should synchronize when post-warmup timing begins."""
+        device = torch.device("cuda")
+
+        with (
+            patch(
+                "torch.cuda.synchronize"
+            ) as mock_sync,
+            patch(
+                "metrics.throughput.time.perf_counter",
+                return_value=100.0,
+            ),
+        ):
+            tracker = ThroughputTracker(
+                device,
+                warmup_optimizer_steps=2,
+            )
+
+            tracker.start()
+            mock_sync.assert_not_called()
+
+            tracker.step()
+            mock_sync.assert_not_called()
+
+            tracker.step()
+            mock_sync.assert_called_once_with(device)
 
     def test_multiple_token_accumulations(self):
         """Multiple record_tokens calls should accumulate."""

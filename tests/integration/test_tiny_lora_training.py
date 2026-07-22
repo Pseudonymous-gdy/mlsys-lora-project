@@ -13,6 +13,7 @@ from torch.utils.data import DataLoader, Dataset
 
 from data.gsm8k import CausalLMCollator, GSM8KDataConfig
 from methods.lora import configure_lora
+from metrics.throughput import ThroughputTracker
 from training.config import (
     EvaluationConfig,
     ExperimentConfig,
@@ -136,6 +137,7 @@ def make_lora_config(max_steps=2, rank=8) -> ExperimentConfig:
             micro_batch_size=2,
             effective_batch_size=2,
             learning_rate=1e-3,
+            throughput_warmup_steps=0,
         ),
         evaluation=EvaluationConfig(batch_size=8, max_new_tokens=512),
         output=OutputConfig(),
@@ -220,24 +222,24 @@ class TestTinyLoRATraining:
 
         device = torch.device("cpu")
         engine = TrainerEngine(config, device, MockMemoryTracker())
+        tracker = ThroughputTracker(
+            device=device,
+            warmup_optimizer_steps=0,
+        )
 
-        model.train()
-        steps = 0
-        for batch in loader:
-            if steps >= 2:
-                break
+        result = engine.train(
+            model=model,
+            optimizer=optimizer,
+            train_loader=loader,
+            throughput_tracker=tracker,
+        )
 
-            inputs, num_tokens = engine._prepare_model_inputs(batch)
-            outputs = model(**inputs)
-            loss = outputs.loss / config.training.gradient_accumulation_steps
-            loss.backward()
-
-            steps += 1
-            if steps % config.training.gradient_accumulation_steps == 0:
-                optimizer.step()
-                optimizer.zero_grad()
-
-        assert steps == 2
+        assert result.optimizer_steps == 2
+        assert result.micro_steps == 2
+        assert result.stop_reason == "max_steps"
+        assert result.trained_non_padding_tokens > 0
+        assert result.measured_time_seconds > 0
+        assert result.tokens_per_second > 0
 
     def test_adapter_parameters_change_after_training(self):
         """Adapter parameters should change after training steps."""
@@ -249,11 +251,13 @@ class TestTinyLoRATraining:
         model, _ = configure_lora(model, config.method)
         optimizer = build_optimizer(model, config)
 
-        # Store initial adapter parameters
         initial_adapter_params = {
-            name: param.clone()
-            for name, param in model.named_parameters()
-            if "lora" in name.lower() and param.requires_grad
+            name: parameter.detach().clone()
+            for name, parameter in model.named_parameters()
+            if (
+                "lora" in name.lower()
+                and parameter.requires_grad
+            )
         }
 
         dataset = TinyTokenDataset(num_samples=8, seq_length=32)
@@ -262,31 +266,32 @@ class TestTinyLoRATraining:
 
         device = torch.device("cpu")
         engine = TrainerEngine(config, device, MockMemoryTracker())
+        tracker = ThroughputTracker(
+            device=device,
+            warmup_optimizer_steps=0,
+        )
 
-        model.train()
-        steps = 0
-        for batch in loader:
-            if steps >= 2:
-                break
+        engine.train(
+            model=model,
+            optimizer=optimizer,
+            train_loader=loader,
+            throughput_tracker=tracker,
+        )
 
-            inputs, num_tokens = engine._prepare_model_inputs(batch)
-            outputs = model(**inputs)
-            loss = outputs.loss / config.training.gradient_accumulation_steps
-            loss.backward()
+        changed = [
+            name
+            for name, parameter in model.named_parameters()
+            if (
+                "lora" in name.lower()
+                and parameter.requires_grad
+                and not torch.equal(
+                    parameter.detach(),
+                    initial_adapter_params[name],
+                )
+            )
+        ]
 
-            steps += 1
-            if steps % config.training.gradient_accumulation_steps == 0:
-                optimizer.step()
-                optimizer.zero_grad()
-
-        # Check that adapter parameters changed
-        changed_count = 0
-        for name, param in model.named_parameters():
-            if "lora" in name.lower() and param.requires_grad:
-                if not torch.equal(initial_adapter_params[name], param):
-                    changed_count += 1
-
-        assert changed_count > 0, "At least some adapter parameters should have changed"
+        assert changed, "At least some adapter parameters should have changed"
 
     def test_base_parameters_unchanged_after_training(self):
         """Base parameters should remain unchanged after LoRA training."""
@@ -298,10 +303,9 @@ class TestTinyLoRATraining:
         model, _ = configure_lora(model, config.method)
         optimizer = build_optimizer(model, config)
 
-        # Store initial base parameters
         initial_base_params = {
-            name: param.clone()
-            for name, param in model.named_parameters()
+            name: parameter.detach().clone()
+            for name, parameter in model.named_parameters()
             if "lora" not in name.lower()
         }
 
@@ -311,27 +315,24 @@ class TestTinyLoRATraining:
 
         device = torch.device("cpu")
         engine = TrainerEngine(config, device, MockMemoryTracker())
+        tracker = ThroughputTracker(
+            device=device,
+            warmup_optimizer_steps=0,
+        )
 
-        model.train()
-        steps = 0
-        for batch in loader:
-            if steps >= 2:
-                break
+        engine.train(
+            model=model,
+            optimizer=optimizer,
+            train_loader=loader,
+            throughput_tracker=tracker,
+        )
 
-            inputs, num_tokens = engine._prepare_model_inputs(batch)
-            outputs = model(**inputs)
-            loss = outputs.loss / config.training.gradient_accumulation_steps
-            loss.backward()
-
-            steps += 1
-            if steps % config.training.gradient_accumulation_steps == 0:
-                optimizer.step()
-                optimizer.zero_grad()
-
-        # Check that base parameters did not change
-        for name, param in model.named_parameters():
+        for name, parameter in model.named_parameters():
             if "lora" not in name.lower():
-                assert torch.equal(initial_base_params[name], param), f"Base parameter {name} should not change"
+                assert torch.equal(
+                    parameter.detach(),
+                    initial_base_params[name],
+                ), f"Base parameter {name} should not change"
 
     def test_loss_is_finite_during_training(self):
         """Loss should be finite during LoRA training."""
@@ -349,23 +350,17 @@ class TestTinyLoRATraining:
 
         device = torch.device("cpu")
         engine = TrainerEngine(config, device, MockMemoryTracker())
+        tracker = ThroughputTracker(
+            device=device,
+            warmup_optimizer_steps=0,
+        )
 
-        model.train()
-        steps = 0
-        for batch in loader:
-            if steps >= 4:
-                break
+        result = engine.train(
+            model=model,
+            optimizer=optimizer,
+            train_loader=loader,
+            throughput_tracker=tracker,
+        )
 
-            inputs, num_tokens = engine._prepare_model_inputs(batch)
-            outputs = model(**inputs)
-            loss = outputs.loss / config.training.gradient_accumulation_steps
-            loss.backward()
-
-            assert torch.isfinite(outputs.loss), f"Loss should be finite at step {steps}"
-
-            steps += 1
-            if steps % config.training.gradient_accumulation_steps == 0:
-                optimizer.step()
-                optimizer.zero_grad()
-
-        assert steps == 4
+        assert torch.isfinite(torch.tensor(result.final_loss))
+        assert torch.isfinite(torch.tensor(result.mean_loss))

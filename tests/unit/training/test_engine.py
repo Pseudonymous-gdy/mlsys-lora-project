@@ -15,6 +15,7 @@ Tests with tiny model and synthetic batches:
 
 from unittest.mock import MagicMock, patch
 
+import pytest
 import torch
 import torch.nn as nn
 
@@ -79,6 +80,7 @@ def make_engine_config(
             micro_batch_size=1,
             effective_batch_size=grad_accum,
             learning_rate=1e-3,
+            throughput_warmup_steps=0,
         ),
         evaluation=EvaluationConfig(batch_size=8, max_new_tokens=512),
         output=OutputConfig(),
@@ -149,6 +151,108 @@ class TestPrepareModelInputs:
         _, num_tokens = engine._prepare_model_inputs(batch)
 
         assert num_tokens == 250
+
+    def test_does_not_mutate_original_batch(self):
+        config = make_engine_config()
+        device = torch.device("cpu")
+        engine = TrainerEngine(config, device, MockMemoryTracker())
+
+        batch = make_batch(100)
+        original_keys = set(batch)
+
+        inputs, token_count = engine._prepare_model_inputs(batch)
+
+        assert set(batch) == original_keys
+        assert "num_non_padding_tokens" in batch
+        assert "num_non_padding_tokens" not in inputs
+        assert token_count == 100
+
+    def test_missing_token_metadata_fails(self):
+        config = make_engine_config()
+        device = torch.device("cpu")
+        engine = TrainerEngine(config, device, MockMemoryTracker())
+
+        batch = {
+            "input_ids": torch.randint(0, 100, (1, 10)),
+            "attention_mask": torch.ones(1, 10, dtype=torch.long),
+            "labels": torch.randint(0, 100, (1, 10)),
+        }
+
+        with pytest.raises(KeyError, match="num_non_padding_tokens"):
+            engine._prepare_model_inputs(batch)
+
+    def test_zero_token_count_fails(self):
+        config = make_engine_config()
+        device = torch.device("cpu")
+        engine = TrainerEngine(config, device, MockMemoryTracker())
+
+        batch = make_batch()
+        batch["num_non_padding_tokens"] = torch.tensor([0])
+
+        with pytest.raises(ValueError, match="must be positive"):
+            engine._prepare_model_inputs(batch)
+
+    def test_negative_token_count_fails(self):
+        config = make_engine_config()
+        device = torch.device("cpu")
+        engine = TrainerEngine(config, device, MockMemoryTracker())
+
+        batch = make_batch()
+        batch["num_non_padding_tokens"] = torch.tensor([-5])
+
+        with pytest.raises(ValueError, match="must be positive"):
+            engine._prepare_model_inputs(batch)
+
+    def test_multi_value_token_tensor_fails(self):
+        config = make_engine_config()
+        device = torch.device("cpu")
+        engine = TrainerEngine(config, device, MockMemoryTracker())
+
+        batch = make_batch()
+        batch["num_non_padding_tokens"] = torch.tensor([100, 200])
+
+        with pytest.raises(ValueError, match="exactly one value"):
+            engine._prepare_model_inputs(batch)
+
+    def test_metadata_not_forwarded_to_model(self):
+        config = make_engine_config()
+        device = torch.device("cpu")
+        engine = TrainerEngine(config, device, MockMemoryTracker())
+
+        batch = make_batch(100)
+        inputs, _ = engine._prepare_model_inputs(batch)
+
+        assert "num_non_padding_tokens" not in inputs
+        assert "input_ids" in inputs
+        assert "labels" in inputs
+
+    def test_missing_input_ids_fails(self):
+        config = make_engine_config()
+        device = torch.device("cpu")
+        engine = TrainerEngine(config, device, MockMemoryTracker())
+
+        batch = {
+            "attention_mask": torch.ones(1, 10, dtype=torch.long),
+            "labels": torch.randint(0, 100, (1, 10)),
+            "num_non_padding_tokens": torch.tensor([100]),
+        }
+
+        with pytest.raises(KeyError, match="input_ids"):
+            engine._prepare_model_inputs(batch)
+
+    def test_missing_labels_fails(self):
+        config = make_engine_config()
+        device = torch.device("cpu")
+        engine = TrainerEngine(config, device, MockMemoryTracker())
+
+        batch = {
+            "input_ids": torch.randint(0, 100, (1, 10)),
+            "attention_mask": torch.ones(1, 10, dtype=torch.long),
+            "num_non_padding_tokens": torch.tensor([100]),
+        }
+
+        with pytest.raises(KeyError, match="labels"):
+            engine._prepare_model_inputs(batch)
 
 
 # ============================================================================
@@ -230,7 +334,7 @@ class TestAutocastContext:
         with engine._autocast_context():
             pass
 
-        mock_autocast.assert_called_once_with(device_type="cuda", dtype=torch.bfloat16)
+        mock_autocast.assert_called_once_with(device_type="cpu", dtype=torch.bfloat16)
 
 
 # ============================================================================
@@ -256,6 +360,76 @@ class TestGradientAccumulation:
 
         # This is tested more thoroughly in integration tests
         assert config.training.gradient_accumulation_steps == 4
+
+
+# ============================================================================
+# _validate_loss tests
+# ============================================================================
+
+
+class TestValidateLoss:
+    def test_missing_loss_fails(self):
+        config = make_engine_config()
+        device = torch.device("cpu")
+        engine = TrainerEngine(config, device, MockMemoryTracker())
+
+        with pytest.raises(RuntimeError, match="does not contain a loss"):
+            engine._validate_loss(None)
+
+    def test_non_tensor_loss_fails(self):
+        config = make_engine_config()
+        device = torch.device("cpu")
+        engine = TrainerEngine(config, device, MockMemoryTracker())
+
+        with pytest.raises(TypeError, match="must be a torch.Tensor"):
+            engine._validate_loss(1.0)
+
+    def test_non_scalar_loss_fails(self):
+        config = make_engine_config()
+        device = torch.device("cpu")
+        engine = TrainerEngine(config, device, MockMemoryTracker())
+
+        loss = torch.tensor([1.0, 2.0])
+        with pytest.raises(ValueError, match="must be scalar"):
+            engine._validate_loss(loss)
+
+    def test_nan_loss_fails(self):
+        config = make_engine_config()
+        device = torch.device("cpu")
+        engine = TrainerEngine(config, device, MockMemoryTracker())
+
+        loss = torch.tensor(float("nan"))
+        with pytest.raises(FloatingPointError, match="Non-finite training loss"):
+            engine._validate_loss(loss)
+
+    def test_positive_inf_loss_fails(self):
+        config = make_engine_config()
+        device = torch.device("cpu")
+        engine = TrainerEngine(config, device, MockMemoryTracker())
+
+        loss = torch.tensor(float("inf"))
+        with pytest.raises(FloatingPointError, match="Non-finite training loss"):
+            engine._validate_loss(loss)
+
+    def test_negative_inf_loss_fails(self):
+        config = make_engine_config()
+        device = torch.device("cpu")
+        engine = TrainerEngine(config, device, MockMemoryTracker())
+
+        loss = torch.tensor(float("-inf"))
+        with pytest.raises(FloatingPointError, match="Non-finite training loss"):
+            engine._validate_loss(loss)
+
+    def test_finite_scalar_loss_passes(self):
+        config = make_engine_config()
+        device = torch.device("cpu")
+        engine = TrainerEngine(config, device, MockMemoryTracker())
+
+        loss = torch.tensor(1.5)
+        result = engine._validate_loss(loss)
+
+        assert result is loss
+        assert result.item() == 1.5
 
 
 # ============================================================================

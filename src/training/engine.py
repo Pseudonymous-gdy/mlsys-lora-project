@@ -55,7 +55,7 @@ class TrainerEngine:
 
     def _prepare_model_inputs(
         self,
-        batch: dict[str, torch.Tensor],
+        batch: dict[str, torch.Tensor | int],
     ) -> tuple[dict[str, torch.Tensor], int]:
         """
         Extract num_non_padding_tokens and prepare inputs for the model.
@@ -63,15 +63,73 @@ class TrainerEngine:
         Returns:
             Tuple of (inputs_dict, num_non_padding_tokens)
         """
-        num_non_padding_tokens = int(batch.pop("num_non_padding_tokens", 0))
-        inputs = {k: v.to(self.device) for k, v in batch.items()}
+        inputs: dict[str, torch.Tensor] = {}
+
+        for key, value in batch.items():
+            if key == "num_non_padding_tokens":
+                continue
+
+            if not isinstance(value, torch.Tensor):
+                raise TypeError(
+                    f"Model input '{key}' must be a torch.Tensor."
+                )
+
+            inputs[key] = value.to(self.device)
+        
+        if "num_non_padding_tokens" not in batch:
+            raise KeyError(
+                "Training batch is missing required metadata "
+                "'num_non_padding_tokens'."
+            )
+
+        raw_token_count = batch["num_non_padding_tokens"]
+
+        if isinstance(raw_token_count, torch.Tensor):
+            if raw_token_count.numel() != 1:
+                raise ValueError(
+                    "'num_non_padding_tokens' must contain "
+                    "exactly one value."
+                )
+            num_non_padding_tokens = int(
+                raw_token_count.item()
+            )
+        elif isinstance(raw_token_count, int):
+            num_non_padding_tokens = raw_token_count
+        else:
+            raise TypeError(
+                "'num_non_padding_tokens' must be an int "
+                "or a one-element tensor."
+            )
+
+        if num_non_padding_tokens <= 0:
+            raise ValueError(
+                "'num_non_padding_tokens' must be positive."
+            )
+
+        required_keys = ("input_ids", "labels")
+        missing_keys = [
+            key for key in required_keys if key not in batch
+        ]
+
+        if missing_keys:
+            raise KeyError(
+                f"Training batch is missing required inputs: "
+                f"{missing_keys}"
+            )
+
+        inputs = {
+            key: value.to(self.device)
+            for key, value in batch.items()
+            if key != "num_non_padding_tokens"
+        }
+
         return inputs, num_non_padding_tokens
 
     @contextmanager
     def _autocast_context(self):
         """Return bf16 autocast context or no-op context based on config."""
         if self.config.training.precision == "bf16":
-            with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+            with torch.autocast(device_type=self.device.type, dtype=torch.bfloat16):
                 yield
         else:
             yield
@@ -102,15 +160,12 @@ class TrainerEngine:
         model: torch.nn.Module,
         optimizer: Optimizer,
         scheduler: torch.optim.lr_scheduler.LRScheduler | None,
-        grad_accum_steps: int,
-        current_step: int,
     ) -> None:
         """
         Perform optimizer step with optional gradient clipping.
 
         Only called when gradient accumulation is complete.
         """
-        # Gradient clipping
         gradient_clip_norm = (
             self.config.training.gradient_clip_norm
         )
@@ -130,7 +185,34 @@ class TrainerEngine:
         if scheduler is not None:
             scheduler.step()
 
-        optimizer.zero_grad()
+        optimizer.zero_grad(set_to_none=True)
+    
+    def _validate_loss(
+        self,
+        loss: torch.Tensor | None,
+    ) -> torch.Tensor:
+        if loss is None:
+            raise RuntimeError(
+                "Model output does not contain a loss."
+            )
+
+        if not isinstance(loss, torch.Tensor):
+            raise TypeError(
+                "Model loss must be a torch.Tensor."
+            )
+
+        if loss.numel() != 1:
+            raise ValueError(
+                "Model loss must be scalar."
+            )
+
+        if not torch.isfinite(loss.detach()).item():
+            value = loss.detach().item()
+            raise FloatingPointError(
+                f"Non-finite training loss detected: {value}"
+            )
+
+        return loss
 
     def train(
         self,
@@ -145,16 +227,16 @@ class TrainerEngine:
 
         Algorithm:
         1. Initialize counters and trackers
-        2. Loop until stop condition:
+        2. Loop until stop condition (checked after optimizer step):
            a. Fetch batch from dataloader (cycle if exhausted)
            b. Prepare inputs, extract token count
            c. Forward pass with autocast
            d. Compute loss, scale by grad_accum_steps
            e. Backward pass
-           f. Track throughput
-           g. Accumulate tokens and micro-steps
-           h. Perform optimizer step if accumulation complete
-           i. Check stop conditions
+           f. Accumulate window counters
+           g. If accumulation window complete, perform optimizer step
+              and submit window tokens to throughput
+           h. Check stop conditions
         3. Return TrainingResult with all metrics
         """
         config = self.config.training
@@ -163,77 +245,120 @@ class TrainerEngine:
         # Initialize counters
         optimizer_steps = 0
         micro_steps = 0
-        trained_non_padding_tokens = 0
-        total_loss = 0.0
-        loss_count = 0
+        micro_steps_in_window = 0
 
-        # Start tracking
+        trained_non_padding_tokens = 0
+        window_non_padding_tokens = 0
+
+        loss_sum = 0.0
+        loss_count = 0
+        final_loss: float | None = None
+
+        # Start training
+        model.train()
+        optimizer.zero_grad(set_to_none=True)
+
         self.memory_tracker.reset()
-        start_time = time.time()
         throughput_tracker.start()
+
+        training_start_time = time.perf_counter()
 
         # Create dataloader iterator
         data_iter = iter(train_loader)
 
-        while True:
-            # Check stop conditions
-            stop_reason = self._should_stop(optimizer_steps, trained_non_padding_tokens)
-            if stop_reason is not None:
-                break
+        stop_reason: StopReason | None = None
 
+        while stop_reason is None:
             # Fetch batch (cycle dataloader if exhausted)
             try:
                 batch = next(data_iter)
             except StopIteration:
-                # Dataset exhausted, recreate iterator
                 data_iter = iter(train_loader)
+
                 try:
                     batch = next(data_iter)
-                except StopIteration:
-                    # Empty dataset
-                    stop_reason = StopReason.DATA_EXHAUSTED
-                    break
+                except StopIteration as exc:
+                    raise ValueError(
+                        "Training dataloader produced no batches."
+                    ) from exc
 
             # Prepare inputs
-            inputs, num_tokens = self._prepare_model_inputs(batch)
+            inputs, num_tokens = (
+                self._prepare_model_inputs(batch)
+            )
 
             # Forward pass
             with self._autocast_context():
-                outputs = model(**inputs, use_cache=False)
-                loss = outputs.loss / grad_accum_steps
-
-            # Backward pass
-            loss.backward()
-
-            # Track throughput
-            throughput_tracker.record_tokens(num_tokens)
-
-            # Accumulate counters
-            total_loss += float(loss.item()) * grad_accum_steps
-            loss_count += 1
-            micro_steps += 1
-            trained_non_padding_tokens += num_tokens
-
-            # Optimizer step
-            if micro_steps % grad_accum_steps == 0:
-                self._perform_optimizer_step(
-                    model=model,
-                    optimizer=optimizer,
-                    scheduler=scheduler,
-                    grad_accum_steps=grad_accum_steps,
-                    current_step=optimizer_steps,
+                outputs = model(
+                    **inputs,
+                    use_cache=False,
                 )
-                optimizer_steps += 1
+                loss = self._validate_loss(outputs.loss)
 
-        # Finish tracking
-        measured_time = time.time() - start_time
+            raw_loss_value = float(loss.detach().item())
+
+            scaled_loss = loss / grad_accum_steps
+            scaled_loss.backward()
+
+            micro_steps += 1
+            micro_steps_in_window += 1
+            window_non_padding_tokens += num_tokens
+
+            loss_sum += raw_loss_value
+            loss_count += 1
+            final_loss = raw_loss_value
+
+            # Continue accumulating if window not complete
+            if micro_steps_in_window < grad_accum_steps:
+                continue
+
+            # Complete optimizer step
+            self._perform_optimizer_step(
+                model=model,
+                optimizer=optimizer,
+                scheduler=scheduler,
+            )
+
+            optimizer_steps += 1
+
+            trained_non_padding_tokens += (
+                window_non_padding_tokens
+            )
+
+            throughput_tracker.step()
+            throughput_tracker.record_tokens(
+                window_non_padding_tokens
+            )
+
+            window_non_padding_tokens = 0
+            micro_steps_in_window = 0
+
+            # Check stop conditions (only after optimizer step)
+            stop_reason = self._should_stop(
+                optimizer_steps,
+                trained_non_padding_tokens,
+            )
+        
+        training_time_seconds = (
+            time.perf_counter() - training_start_time
+        )
 
         # Compute final metrics
-        final_loss = float(total_loss / loss_count) if loss_count > 0 else 0.0
-        mean_loss = final_loss  # Same as final_loss for this implementation
+        if final_loss is None or loss_count == 0:
+            raise RuntimeError(
+                "Training completed without a valid loss."
+            )
+
+        mean_loss = loss_sum / loss_count
+
+        throughput_metrics = throughput_tracker.finish()
 
         memory_metrics = self.memory_tracker.snapshot()
-        throughput_metrics = throughput_tracker.finish()
+
+        if stop_reason is None:
+            raise RuntimeError(
+                "Training exited without a stop reason."
+            )
 
         return TrainingResult(
             optimizer_steps=optimizer_steps,
@@ -243,7 +368,7 @@ class TrainerEngine:
             ),
             final_loss=final_loss,
             mean_loss=mean_loss,
-            training_time_seconds=measured_time,
+            training_time_seconds=training_time_seconds,
             measured_time_seconds=(
                 throughput_metrics.measured_seconds
             ),

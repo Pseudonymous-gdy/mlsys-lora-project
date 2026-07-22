@@ -310,6 +310,25 @@ def validate_experiment_config(config: ExperimentConfig) -> None:
 
     # Training
     t = config.training
+    if t.max_steps is not None and t.max_steps <= 0:
+        errors.append(
+            "max_steps must be > 0 when set"
+        )
+    if (
+        t.training_token_budget is not None
+        and t.training_token_budget <= 0
+    ):
+        errors.append(
+            "training_token_budget must be > 0 when set"
+        )
+    if (
+    t.max_steps is not None
+        and t.throughput_warmup_steps >= t.max_steps
+    ):
+        errors.append(
+            "throughput_warmup_steps must be smaller "
+            "than max_steps"
+        )
     if t.micro_batch_size <= 0:
         errors.append("micro_batch_size must be > 0")
     if t.effective_batch_size <= 0:
@@ -397,7 +416,7 @@ def validate_experiment_config(config: ExperimentConfig) -> None:
 # ============================================================================
 
 
-def _dataclass_to_dict(obj: Any) -> dict[str, Any]:
+def _dataclass_to_dict(obj: Any) -> Any:
     """Recursively convert dataclasses and Paths to JSON/YAML-safe objects."""
     if hasattr(obj, "__dataclass_fields__"):
         return {k: _dataclass_to_dict(v) for k, v in asdict(obj).items()}

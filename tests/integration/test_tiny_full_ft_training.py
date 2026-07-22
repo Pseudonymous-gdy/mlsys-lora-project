@@ -12,6 +12,7 @@ from torch.utils.data import DataLoader, Dataset
 
 from data.gsm8k import CausalLMCollator, GSM8KDataConfig
 from methods.full_ft import configure_full_finetuning
+from metrics.throughput import ThroughputTracker
 from training.config import (
     EvaluationConfig,
     ExperimentConfig,
@@ -112,6 +113,7 @@ def make_full_ft_config(max_steps=2) -> ExperimentConfig:
             micro_batch_size=2,
             effective_batch_size=2,
             learning_rate=1e-3,
+            throughput_warmup_steps=0,
         ),
         evaluation=EvaluationConfig(batch_size=8, max_new_tokens=512),
         output=OutputConfig(),
@@ -173,24 +175,24 @@ class TestTinyFullFTTraining:
 
         device = torch.device("cpu")
         engine = TrainerEngine(config, device, MockMemoryTracker())
+        tracker = ThroughputTracker(
+            device=device,
+            warmup_optimizer_steps=0,
+        )
 
-        model.train()
-        steps = 0
-        for batch in loader:
-            if steps >= 2:
-                break
+        result = engine.train(
+            model=model,
+            optimizer=optimizer,
+            train_loader=loader,
+            throughput_tracker=tracker,
+        )
 
-            inputs, num_tokens = engine._prepare_model_inputs(batch)
-            outputs = model(**inputs)
-            loss = outputs.loss / config.training.gradient_accumulation_steps
-            loss.backward()
-
-            steps += 1
-            if steps % config.training.gradient_accumulation_steps == 0:
-                optimizer.step()
-                optimizer.zero_grad()
-
-        assert steps == 2
+        assert result.optimizer_steps == 2
+        assert result.micro_steps == 2
+        assert result.stop_reason == "max_steps"
+        assert result.trained_non_padding_tokens > 0
+        assert result.measured_time_seconds > 0
+        assert result.tokens_per_second > 0
 
     def test_parameters_change_after_training(self):
         """Parameters should change after training steps."""
@@ -200,10 +202,9 @@ class TestTinyFullFTTraining:
         configure_full_finetuning(model)
         optimizer = build_optimizer(model, config)
 
-        # Store initial parameters
         initial_params = {
-            name: param.clone()
-            for name, param in model.named_parameters()
+            name: parameter.detach().clone()
+            for name, parameter in model.named_parameters()
         }
 
         dataset = TinyTokenDataset(num_samples=8, seq_length=32)
@@ -212,33 +213,31 @@ class TestTinyFullFTTraining:
 
         device = torch.device("cpu")
         engine = TrainerEngine(config, device, MockMemoryTracker())
+        tracker = ThroughputTracker(
+            device=device,
+            warmup_optimizer_steps=0,
+        )
 
-        model.train()
-        steps = 0
-        for batch in loader:
-            if steps >= 2:
-                break
+        engine.train(
+            model=model,
+            optimizer=optimizer,
+            train_loader=loader,
+            throughput_tracker=tracker,
+        )
 
-            inputs, num_tokens = engine._prepare_model_inputs(batch)
-            outputs = model(**inputs)
-            loss = outputs.loss / config.training.gradient_accumulation_steps
-            loss.backward()
+        changed = [
+            name
+            for name, parameter in model.named_parameters()
+            if not torch.equal(
+                parameter.detach(),
+                initial_params[name],
+            )
+        ]
 
-            steps += 1
-            if steps % config.training.gradient_accumulation_steps == 0:
-                optimizer.step()
-                optimizer.zero_grad()
+        assert changed, "At least some parameters should have changed"
 
-        # Check that at least some parameters changed
-        changed_count = 0
-        for name, param in model.named_parameters():
-            if not torch.equal(initial_params[name], param):
-                changed_count += 1
-
-        assert changed_count > 0, "At least some parameters should have changed"
-
-    def test_loss_decreases_during_training(self):
-        """Loss should generally decrease during training."""
+    def test_loss_is_finite_during_training(self):
+        """Loss values should be finite during training."""
         model = TinyTransformerLikeModel(vocab_size=100, hidden_size=32, num_layers=2)
         config = make_full_ft_config(max_steps=4)
 
@@ -251,25 +250,17 @@ class TestTinyFullFTTraining:
 
         device = torch.device("cpu")
         engine = TrainerEngine(config, device, MockMemoryTracker())
+        tracker = ThroughputTracker(
+            device=device,
+            warmup_optimizer_steps=0,
+        )
 
-        model.train()
-        losses = []
-        steps = 0
-        for batch in loader:
-            if steps >= 4:
-                break
+        result = engine.train(
+            model=model,
+            optimizer=optimizer,
+            train_loader=loader,
+            throughput_tracker=tracker,
+        )
 
-            inputs, num_tokens = engine._prepare_model_inputs(batch)
-            outputs = model(**inputs)
-            loss = outputs.loss / config.training.gradient_accumulation_steps
-            loss.backward()
-
-            losses.append(outputs.loss.item())
-
-            steps += 1
-            if steps % config.training.gradient_accumulation_steps == 0:
-                optimizer.step()
-                optimizer.zero_grad()
-
-        assert len(losses) == 4
-        assert all(torch.isfinite(torch.tensor(l)) for l in losses)
+        assert torch.isfinite(torch.tensor(result.final_loss))
+        assert torch.isfinite(torch.tensor(result.mean_loss))

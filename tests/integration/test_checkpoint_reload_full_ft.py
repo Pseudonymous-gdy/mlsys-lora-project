@@ -86,6 +86,7 @@ def make_full_ft_config() -> ExperimentConfig:
             micro_batch_size=2,
             effective_batch_size=2,
             learning_rate=1e-3,
+            throughput_warmup_steps=0,
         ),
         evaluation=EvaluationConfig(batch_size=8, max_new_tokens=512),
         output=OutputConfig(),

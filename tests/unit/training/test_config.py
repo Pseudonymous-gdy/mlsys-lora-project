@@ -294,6 +294,72 @@ class TestInvalidConfiguration:
         with pytest.raises(ValueError, match="gradient_clip_norm"):
             validate_experiment_config(config)
 
+    @pytest.mark.parametrize("max_steps", [0, -1])
+    def test_rejects_non_positive_max_steps(self, max_steps):
+        config = make_minimal_config({
+            "training": TrainingConfig(
+                micro_batch_size=1,
+                effective_batch_size=16,
+                gradient_accumulation_steps=16,
+                max_steps=max_steps,
+                training_token_budget=1_000_000,
+            )
+        })
+        with pytest.raises(ValueError, match="max_steps must be > 0"):
+            validate_experiment_config(config)
+
+    @pytest.mark.parametrize("token_budget", [0, -1])
+    def test_rejects_non_positive_token_budget(self, token_budget):
+        config = make_minimal_config({
+            "training": TrainingConfig(
+                micro_batch_size=1,
+                effective_batch_size=16,
+                gradient_accumulation_steps=16,
+                max_steps=30,
+                training_token_budget=token_budget,
+            )
+        })
+        with pytest.raises(ValueError, match="training_token_budget must be > 0"):
+            validate_experiment_config(config)
+
+    def test_rejects_warmup_equal_to_max_steps(self):
+        config = make_minimal_config({
+            "training": TrainingConfig(
+                micro_batch_size=1,
+                effective_batch_size=16,
+                gradient_accumulation_steps=16,
+                max_steps=2,
+                throughput_warmup_steps=2,
+            )
+        })
+        with pytest.raises(ValueError, match="throughput_warmup_steps must be smaller"):
+            validate_experiment_config(config)
+
+    def test_rejects_warmup_greater_than_max_steps(self):
+        config = make_minimal_config({
+            "training": TrainingConfig(
+                micro_batch_size=1,
+                effective_batch_size=16,
+                gradient_accumulation_steps=16,
+                max_steps=2,
+                throughput_warmup_steps=3,
+            )
+        })
+        with pytest.raises(ValueError, match="throughput_warmup_steps must be smaller"):
+            validate_experiment_config(config)
+
+    def test_accepts_warmup_smaller_than_max_steps(self):
+        config = make_minimal_config({
+            "training": TrainingConfig(
+                micro_batch_size=1,
+                effective_batch_size=16,
+                gradient_accumulation_steps=16,
+                max_steps=2,
+                throughput_warmup_steps=1,
+            )
+        })
+        validate_experiment_config(config)  # Should not raise
+
 
 # ============================================================================
 # Training config structure tests
