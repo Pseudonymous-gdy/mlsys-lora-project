@@ -122,162 +122,319 @@ def validate_experiment_result(result: ExperimentResult) -> None:
     """
     Validate an ExperimentResult before writing.
 
-    Responsibilities:
-    - enforce required identifiers
-    - enforce positive metrics for completed runs where applicable
-    - require error_type and error_message for failed runs
-    - reject NaN and infinity
-    - reject placeholder trainable parameter counts
-    - enforce method-specific rank constraints
-    - enforce completed-state metric invariants
-    - enforce failed/OOM metric absence
+    Enforces identity, method-specific rank semantics, status-specific
+    fields, completed metrics, finite numeric values, and parameter
+    count consistency.
     """
     errors: list[str] = []
 
+    # ------------------------------------------------------------------
     # Required identifiers
+    # ------------------------------------------------------------------
     if not result.run_id:
         errors.append("run_id must be nonempty")
+
     if not result.experiment_name:
-        errors.append("experiment_name must be nonempty")
+        errors.append(
+            "experiment_name must be nonempty"
+        )
+
     if not result.method:
         errors.append("method must be nonempty")
+
     if not result.model_name:
         errors.append("model_name must be nonempty")
+
     if not result.model_revision:
-        errors.append("model_revision must be nonempty")
+        errors.append(
+            "model_revision must be nonempty"
+        )
+
     if not result.dataset_revision:
-        errors.append("dataset_revision must be nonempty")
+        errors.append(
+            "dataset_revision must be nonempty"
+        )
 
-    # Status validation
-    if result.status not in ("completed", "oom", "failed"):
-        errors.append(f"status must be 'completed', 'oom', or 'failed', got '{result.status}'")
+    # ------------------------------------------------------------------
+    # Method and rank contract
+    # ------------------------------------------------------------------
+    if result.method not in ("lora", "full_ft"):
+        errors.append(
+            "method must be 'lora' or 'full_ft', "
+            f"got {result.method!r}"
+        )
 
-    # Method-specific rank constraints
     if result.method == "lora":
-        if result.rank is None or not isinstance(result.rank, int) or result.rank <= 0:
-            errors.append("LoRA method requires rank to be a positive integer")
-    elif result.method == "full_ft":
-        if result.rank is not None:
-            errors.append("full_ft method requires rank to be None")
+        rank_is_valid = (
+            isinstance(result.rank, int)
+            and not isinstance(result.rank, bool)
+            and result.rank > 0
+        )
 
-    # Failed/OOM runs must have error info
+        if not rank_is_valid:
+            errors.append(
+                "LoRA runs require rank to be "
+                "a positive integer"
+            )
+
+    if (
+        result.method == "full_ft"
+        and result.rank is not None
+    ):
+        errors.append(
+            "Full FT runs require rank=None"
+        )
+
+    # ------------------------------------------------------------------
+    # Status contract
+    # ------------------------------------------------------------------
+    if result.status not in (
+        "completed",
+        "oom",
+        "failed",
+    ):
+        errors.append(
+            "status must be 'completed', 'oom', "
+            f"or 'failed', got {result.status!r}"
+        )
+
     if result.status in ("failed", "oom"):
         if not result.error_type:
-            errors.append("error_type is required for failed/oom runs")
+            errors.append(
+                "error_type is required for "
+                "failed/oom runs"
+            )
+
         if not result.error_message:
-            errors.append("error_message is required for failed/oom runs")
+            errors.append(
+                "error_message is required for "
+                "failed/oom runs"
+            )
 
-        # Training-derived metrics should be None for failed/OOM runs
-        training_metrics = [
-            ("peak_memory_gb", result.peak_memory_gb),
-            ("peak_reserved_memory_gb", result.peak_reserved_memory_gb),
-            ("tokens_per_second", result.tokens_per_second),
-            ("training_time_seconds", result.training_time_seconds),
-            ("exact_match", result.exact_match),
-            ("trainable_parameters", result.trainable_parameters),
-            ("total_parameters", result.total_parameters),
-            ("checkpoint_size_mb", result.checkpoint_size_mb),
-            ("trained_non_padding_tokens", result.trained_non_padding_tokens),
-            ("optimizer_steps", result.optimizer_steps),
-        ]
-        for name, value in training_metrics:
-            if value is not None:
-                errors.append(f"{name} must be None for {result.status} runs")
-
-    # Completed runs validation
     if result.status == "completed":
-        # Error fields must be None
         if result.error_type is not None:
-            errors.append("error_type must be None for completed runs")
+            errors.append(
+                "completed runs must not have "
+                "error_type"
+            )
+
         if result.error_message is not None:
-            errors.append("error_message must be None for completed runs")
+            errors.append(
+                "completed runs must not have "
+                "error_message"
+            )
 
-        # Positive step/token counts
-        if result.optimizer_steps is None or result.optimizer_steps <= 0:
-            errors.append("completed runs must have positive optimizer_steps")
-        if result.trained_non_padding_tokens is None or result.trained_non_padding_tokens <= 0:
-            errors.append("completed runs must have positive trained_non_padding_tokens")
+        if (
+            result.optimizer_steps is None
+            or result.optimizer_steps <= 0
+        ):
+            errors.append(
+                "completed runs must have positive "
+                "optimizer_steps"
+            )
 
-        # Memory metrics
-        if result.peak_memory_gb is not None and result.peak_memory_gb < 0:
-            errors.append("peak_memory_gb must be >= 0")
-        if result.peak_reserved_memory_gb is not None and result.peak_memory_gb is not None:
-            if result.peak_reserved_memory_gb < result.peak_memory_gb:
-                errors.append("peak_reserved_memory_gb must be >= peak_memory_gb")
+        if (
+            result.trained_non_padding_tokens is None
+            or result.trained_non_padding_tokens <= 0
+        ):
+            errors.append(
+                "completed runs must have positive "
+                "trained_non_padding_tokens"
+            )
 
-        # Performance metrics
-        if result.tokens_per_second is not None and result.tokens_per_second <= 0:
-            errors.append("tokens_per_second must be > 0")
-        if result.training_time_seconds is not None and result.training_time_seconds <= 0:
-            errors.append("training_time_seconds must be > 0")
+        if (
+            result.exact_match is None
+            or not 0.0
+            <= result.exact_match
+            <= 1.0
+        ):
+            errors.append(
+                "completed exact_match must be "
+                "within [0, 1]"
+            )
 
-        # Evaluation metric
-        if result.exact_match is not None and not (0 <= result.exact_match <= 1):
-            errors.append("exact_match must be in [0, 1]")
+        if (
+            result.tokens_per_second is None
+            or result.tokens_per_second <= 0
+        ):
+            errors.append(
+                "completed runs must have positive "
+                "tokens_per_second"
+            )
 
-        # Parameter counts
-        if result.trainable_parameters is not None and result.trainable_parameters <= 0:
-            errors.append("trainable_parameters must be positive when set")
-        if result.total_parameters is not None and result.total_parameters <= 0:
-            errors.append("total_parameters must be positive when set")
-        if (result.total_parameters is not None and result.trainable_parameters is not None
-                and result.total_parameters < result.trainable_parameters):
-            errors.append("total_parameters must be >= trainable_parameters")
+        if (
+            result.training_time_seconds is None
+            or result.training_time_seconds <= 0
+        ):
+            errors.append(
+                "completed runs must have positive "
+                "training_time_seconds"
+            )
 
-    # NaN/Infinity rejection for numeric fields
-    numeric_fields = [
+    # ------------------------------------------------------------------
+    # Finite numeric values
+    # ------------------------------------------------------------------
+    numeric_fields = (
         ("peak_memory_gb", result.peak_memory_gb),
-        ("peak_reserved_memory_gb", result.peak_reserved_memory_gb),
-        ("tokens_per_second", result.tokens_per_second),
-        ("training_time_seconds", result.training_time_seconds),
+        (
+            "peak_reserved_memory_gb",
+            result.peak_reserved_memory_gb,
+        ),
+        (
+            "tokens_per_second",
+            result.tokens_per_second,
+        ),
+        (
+            "training_time_seconds",
+            result.training_time_seconds,
+        ),
         ("exact_match", result.exact_match),
-    ]
+        (
+            "checkpoint_size_mb",
+            result.checkpoint_size_mb,
+        ),
+    )
 
     for name, value in numeric_fields:
-        if value is not None and (math.isnan(value) or math.isinf(value)):
-            errors.append(f"{name} must not be NaN or infinity, got {value}")
+        if (
+            value is not None
+            and (
+                math.isnan(value)
+                or math.isinf(value)
+            )
+        ):
+            errors.append(
+                f"{name} must not be NaN or "
+                f"infinity, got {value}"
+            )
+
+    # ------------------------------------------------------------------
+    # Parameter count contract
+    # ------------------------------------------------------------------
+    if (
+        result.trainable_parameters is not None
+        and result.trainable_parameters <= 0
+    ):
+        errors.append(
+            "trainable_parameters must be "
+            "positive when set"
+        )
+
+    if (
+        result.total_parameters is not None
+        and result.total_parameters <= 0
+    ):
+        errors.append(
+            "total_parameters must be positive "
+            "when set"
+        )
+
+    if (
+        result.trainable_parameters is not None
+        and result.total_parameters is not None
+        and result.trainable_parameters
+        > result.total_parameters
+    ):
+        errors.append(
+            "total_parameters must be greater "
+            "than or equal to "
+            "trainable_parameters"
+        )
+
+    # ------------------------------------------------------------------
+    # Memory metric relationship
+    # ------------------------------------------------------------------
+    if (
+        result.peak_memory_gb is not None
+        and result.peak_memory_gb < 0
+    ):
+        errors.append(
+            "peak_memory_gb must be non-negative"
+        )
+
+    if (
+        result.peak_reserved_memory_gb is not None
+        and result.peak_reserved_memory_gb < 0
+    ):
+        errors.append(
+            "peak_reserved_memory_gb must be "
+            "non-negative"
+        )
+
+    if (
+        result.peak_memory_gb is not None
+        and result.peak_reserved_memory_gb
+        is not None
+        and result.peak_reserved_memory_gb
+        < result.peak_memory_gb
+    ):
+        errors.append(
+            "peak_reserved_memory_gb must be "
+            "greater than or equal to "
+            "peak_memory_gb"
+        )
 
     if errors:
         raise ValueError(
             "ExperimentResult validation failed:\n"
-            + "\n".join(f"  - {e}" for e in errors)
+            + "\n".join(
+                f" - {error}"
+                for error in errors
+            )
         )
 
 
-def write_json_atomic(data: dict[str, Any], path: Path) -> None:
+def write_json_atomic(
+    data: dict[str, Any],
+    path: Path,
+) -> None:
     """
-    Write JSON data atomically.
+    Write JSON data using a durable temporary-file
+    replacement protocol.
 
-    Responsibilities:
-    - write to a temporary file in the same directory
-    - flush and fsync to ensure data reaches disk
-    - atomically replace the destination via os.replace
-    - create parent directories
-    - avoid partially written results after job termination
-    - clean up temporary file on failure
+    The temporary file is created in the destination
+    directory so os.replace() remains atomic on the
+    target filesystem.
     """
     path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
+    path.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
 
-    fd, tmp_path = tempfile.mkstemp(
+    fd, tmp_path_string = tempfile.mkstemp(
         dir=path.parent,
         suffix=".json.tmp",
         prefix=".result_",
     )
-    try:
-        with open(fd, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2, default=str)
-            f.flush()
-            os.fsync(f.fileno())
+    tmp_path = Path(tmp_path_string)
 
-        os.replace(tmp_path, path)
+    try:
+        with open(
+            fd,
+            "w",
+            encoding="utf-8",
+        ) as handle:
+            json.dump(
+                data,
+                handle,
+                indent=2,
+                default=str,
+            )
+            handle.flush()
+            os.fsync(handle.fileno())
+
+        os.replace(
+            tmp_path,
+            path,
+        )
+
     except Exception:
         try:
-            os.close(fd)
+            tmp_path.unlink(
+                missing_ok=True
+            )
         except OSError:
             pass
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
+
         raise

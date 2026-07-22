@@ -509,3 +509,39 @@ class TestAtomicWriting:
         assert len(remaining) == 0
         import shutil
         shutil.rmtree(tmp_dir)
+
+    def test_write_json_atomic_fsyncs_and_replaces(
+        self,
+    ):
+        """Atomic writes should fsync before replacement."""
+        import os
+        from unittest.mock import patch
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "result.json"
+
+            with (
+                patch(
+                    "training.results.os.fsync",
+                    wraps=os.fsync,
+                ) as mock_fsync,
+                patch(
+                    "training.results.os.replace",
+                    wraps=os.replace,
+                ) as mock_replace,
+            ):
+                write_json_atomic(
+                    {"status": "completed"},
+                    path,
+                )
+
+            mock_fsync.assert_called_once()
+            mock_replace.assert_called_once()
+
+            source, destination = (
+                mock_replace.call_args.args
+            )
+
+            assert Path(destination) == path
+            assert Path(source).parent == path.parent
+            assert path.exists()

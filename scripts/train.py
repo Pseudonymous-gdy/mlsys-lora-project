@@ -32,7 +32,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--allow-overwrite",
         action="store_true",
-        help="Allow overwriting completed results (development only)",
+        help=(
+            "Delete and recreate existing artifacts "
+            "for this run ID (development only)"
+        ),
     )
     return parser.parse_args()
 

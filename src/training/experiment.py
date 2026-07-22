@@ -394,44 +394,59 @@ class ExperimentRunner:
 
     def _prepare_run_directory(self) -> None:
         """
-        Create result directory and write resolved config.
+        Prepare a clean run directory.
 
-        Responsibilities:
-        - create result directory
-        - fail if completed result already exists (unless allow_overwrite)
-        - write resolved config before expensive work
-        - do not silently overwrite completed experiments
+        Without allow_overwrite, a completed result is
+        protected. With allow_overwrite, all artifacts for
+        this run ID are removed before execution.
         """
         import shutil
 
+        result_dir = self.run_paths.result_dir
         result_json = self.run_paths.result_json
+        checkpoint_run_dir = (
+            self.run_paths.checkpoint_dir.parent
+        )
 
-        # Check for existing completed result
-        if result_json.exists():
+        if self.allow_overwrite:
+            if result_dir.exists():
+                shutil.rmtree(result_dir)
+
+            if checkpoint_run_dir.exists():
+                shutil.rmtree(
+                    checkpoint_run_dir
+                )
+
+        elif result_json.exists():
             try:
-                with open(result_json, "r", encoding="utf-8") as f:
-                    existing = json.load(f)
-                if existing.get("status") == "completed":
-                    if not self.allow_overwrite:
-                        raise FileExistsError(
-                            f"Completed result already exists: {result_json}"
-                        )
-
-                    # Delete old run artifacts
-                    if self.run_paths.result_dir.exists():
-                        shutil.rmtree(self.run_paths.result_dir)
-
-                    checkpoint_run_dir = self.run_paths.checkpoint_dir.parent
-                    if checkpoint_run_dir.exists():
-                        shutil.rmtree(checkpoint_run_dir)
+                with open(
+                    result_json,
+                    "r",
+                    encoding="utf-8",
+                ) as handle:
+                    existing = json.load(handle)
             except json.JSONDecodeError:
-                pass  # Corrupted file, will be overwritten
+                existing = None
 
-        # Create result directory
-        self.run_paths.result_dir.mkdir(parents=True, exist_ok=True)
+            if (
+                existing is not None
+                and existing.get("status")
+                == "completed"
+            ):
+                raise FileExistsError(
+                    "Completed result already exists: "
+                    f"{result_json}"
+                )
 
-        # Write resolved config
-        write_resolved_config(self.config, self.run_paths.resolved_config_yaml)
+        result_dir.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+
+        write_resolved_config(
+            self.config,
+            self.run_paths.resolved_config_yaml,
+        )
 
     def _build_components(self) -> TrainingComponents:
         """
@@ -592,7 +607,10 @@ class ExperimentRunner:
         validate_experiment_result(result)
         return result
 
-    def _build_oom_result(self, error: BaseException) -> ExperimentResult:
+    def _build_oom_result(
+        self,
+        error: Exception,
+    ) -> ExperimentResult:
         """
         Build OOM experiment result.
 
@@ -634,7 +652,10 @@ class ExperimentRunner:
             error_message=str(error)[:500],
         )
 
-    def _build_failed_result(self, error: BaseException) -> ExperimentResult:
+    def _build_failed_result(
+        self,
+        error: Exception,
+    ) -> ExperimentResult:
         """
         Build failed experiment result.
 
@@ -741,29 +762,30 @@ class ExperimentRunner:
 
             return result
 
-        except BaseException as e:
-            # KeyboardInterrupt and SystemExit should not be captured
-            if isinstance(e, (KeyboardInterrupt, SystemExit)):
-                raise
+        except Exception as error:
+            oom = is_cuda_oom(error)
 
-            # Classify error
-            if is_cuda_oom(e):
-                result = self._build_oom_result(e)
+            if oom:
+                result = self._build_oom_result(
+                    error
+                )
             else:
-                result = self._build_failed_result(e)
+                result = self._build_failed_result(
+                    error
+                )
 
-            # Write result
-            write_json_atomic(
-                experiment_result_to_dict(result),
-                self.run_paths.result_json,
-            )
+            try:
+                validate_experiment_result(result)
 
-            # Release references
-            if hasattr(self, "_components"):
-                del self._components
+                write_json_atomic(
+                    experiment_result_to_dict(result),
+                    self.run_paths.result_json,
+                )
+            finally:
+                if hasattr(self, "_components"):
+                    del self._components
 
-            # Re-raise for non-OOM errors
-            if not is_cuda_oom(e):
+            if not oom:
                 raise
 
             return result

@@ -875,3 +875,113 @@ class TestExperimentRunnerControlFlow:
             # KeyboardInterrupt should NOT write a failed result
             result_json = runner.run_paths.result_json
             assert not result_json.exists()
+
+    def test_generator_exit_not_captured(self):
+        """
+        GeneratorExit should propagate and must not be
+        persisted as a failed experiment.
+        """
+        from unittest.mock import MagicMock, patch
+
+        from training.experiment import (
+            ExperimentRunner,
+        )
+
+        config = self._make_minimal_config()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = ExperimentRunner(
+                config=config,
+                repository_root=Path(tmpdir),
+            )
+
+            mock_components = MagicMock()
+            mock_components.device = MagicMock(
+                type="cuda"
+            )
+
+            with patch(
+                "training.experiment."
+                "build_training_components",
+                return_value=mock_components,
+            ):
+                with patch.object(
+                    runner,
+                    "_train",
+                    side_effect=GeneratorExit(),
+                ):
+                    with pytest.raises(GeneratorExit):
+                        runner.run()
+
+            assert not (
+                runner.run_paths.result_json.exists()
+            )
+
+    def test_overwrite_clears_partial_artifacts(
+        self,
+    ):
+        """
+        allow_overwrite should clean stale artifacts even
+        when no completed result.json exists.
+        """
+        from training.experiment import (
+            ExperimentRunner,
+        )
+
+        config = self._make_minimal_config()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = ExperimentRunner(
+                config=config,
+                repository_root=Path(tmpdir),
+                allow_overwrite=True,
+            )
+
+            result_dir = runner.run_paths.result_dir
+            checkpoint_run_dir = (
+                runner.run_paths.checkpoint_dir.parent
+            )
+
+            result_dir.mkdir(
+                parents=True,
+            )
+            checkpoint_run_dir.mkdir(
+                parents=True,
+            )
+
+            stale_prediction = (
+                result_dir / "predictions.jsonl"
+            )
+            stale_metadata = (
+                result_dir / "metadata.json"
+            )
+            stale_checkpoint = (
+                checkpoint_run_dir / "stale.bin"
+            )
+
+            stale_prediction.write_text(
+                "stale",
+                encoding="utf-8",
+            )
+            stale_metadata.write_text(
+                "{}",
+                encoding="utf-8",
+            )
+            stale_checkpoint.write_bytes(
+                b"stale"
+            )
+
+            runner._prepare_run_directory()
+
+            assert not stale_prediction.exists()
+            assert not stale_metadata.exists()
+            assert not stale_checkpoint.exists()
+
+            assert (
+                runner.run_paths.result_dir.exists()
+            )
+            assert (
+                runner.run_paths
+                .resolved_config_yaml
+                .exists()
+            )
