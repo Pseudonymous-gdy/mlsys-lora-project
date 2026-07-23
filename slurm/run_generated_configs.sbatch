@@ -557,19 +557,8 @@ submission_mode() {
     local total_cpus
     local total_memory_gb
 
-    total_cpus="$(
-        (
-            CPUS_PER_GPU
-            * GPUS_PER_JOB
-        )
-    )"
-
-    total_memory_gb="$(
-        (
-            MEM_GB_PER_GPU
-            * GPUS_PER_JOB
-        )
-    )"
+    total_cpus=$((CPUS_PER_GPU * GPUS_PER_JOB))
+    total_memory_gb=$((MEM_GB_PER_GPU * GPUS_PER_JOB))
 
     export MLSYS_GENERATED_MODE=worker
 
