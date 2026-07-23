@@ -14,7 +14,7 @@ def test_full_experiment_matrix_is_complete_and_unique(tmp_path):
     assert len(base["data"]["revision"]) == 40
     assert len(base["model"]["revision"]) == 40
     assert len(base["model"]["fallback_revision"]) == 40
-    assert len(configs) == 33
+    assert len(configs) == 39
     names = [config["experiment"]["name"] for config in configs]
     assert len(set(names)) == len(names)
     counts = {}
@@ -37,11 +37,11 @@ def test_full_experiment_matrix_is_complete_and_unique(tmp_path):
         "max_batch": 10,
         "rank": 4,
         "sequence_length": 6,
-        "final_seeds": 9,
+        "final_seeds": 15,
     }
 
     paths = generate_config_files(
         ROOT / "configs/base.yaml", ROOT / "configs/sweeps.yaml", tmp_path
     )
-    assert len(paths) == 33
+    assert len(paths) == 39
     assert all(path.is_file() for path in paths)

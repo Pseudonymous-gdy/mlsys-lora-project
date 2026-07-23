@@ -14,7 +14,7 @@ sweeps:
       - {method: lora, rank: 16, learning_rate: 0.0002}
     overrides:
       training:
-        effective_batch_size: 1
+        effective_batch_size: 2
         max_steps: 30
         training_token_budget: null
       evaluation:
@@ -57,4 +57,4 @@ sweeps:
       - {method: lora, rank: 8, learning_rate: 0.0002}
       - {method: lora, rank: 16, learning_rate: 0.0002}
     axes:
-      seed: [11, 22, 33]
+      seed: [11, 22, 33, 44, 55]

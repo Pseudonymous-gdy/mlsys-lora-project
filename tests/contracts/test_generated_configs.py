@@ -248,8 +248,8 @@ class TestGeneratedConfigs:
             assert config.training.max_steps <= 30
 
     def test_config_count_is_correct(self):
-        """There should be exactly 33 generated config files."""
+        """There should be exactly 39 generated config files."""
         assert len(ALL_GENERATED_CONFIGS) == 33
 
         existing_configs = list(GENERATED_CONFIGS_DIR.glob("*.yaml"))
-        assert len(existing_configs) == 33, f"Expected 33 configs, found {len(existing_configs)}"
+        assert len(existing_configs) == 39, f"Expected 39 configs, found {len(existing_configs)}"

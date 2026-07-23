@@ -1,6 +1,6 @@
 experiment:
-  name: seq_full_ft_l256
-  sweep: sequence_length
+  name: seed_lora_r8_s44
+  sweep: final_seeds
 model:
   name: Qwen/Qwen3.5-0.8B
   revision: 2fc06364715b967f1860aea9cf38778875588b17
@@ -14,20 +14,20 @@ data:
   validation_size: 500
   split_seed: 42
   prompt_format: chat
-  max_length: 256
+  max_length: 512
   pad_to_multiple_of: 8
 method:
-  name: full_ft
-  rank: null
-  alpha: null
-  dropout: null
+  name: lora
+  rank: 8
+  alpha: 32
+  dropout: 0.05
 training:
-  seed: 42
+  seed: 44
   precision: bf16
   micro_batch_size: 2
   effective_batch_size: 16
   gradient_accumulation_steps: 8
-  learning_rate: 2.0e-05
+  learning_rate: 0.0002
   weight_decay: 1.0e-06
   max_steps: null
   training_token_budget: 1000000
