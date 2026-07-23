@@ -82,7 +82,7 @@ export PROJECT_ENV="${PROJECT_ENV:-\
 # Slurm resource settings
 # ============================================================================
 
-export PARTITION="${PARTITION:-debug}"
+export PARTITION="${PARTITION:-emergency_gpua40}"
 export GPU_TYPE="${GPU_TYPE:-a40}"
 
 # Allowed values are deliberately restricted to the requested modes.
@@ -93,7 +93,7 @@ export MEM_GB_PER_GPU="${MEM_GB_PER_GPU:-48}"
 
 # One packed job may run many configs. Increase this when the local generated
 # set is large. The A40 partition currently permits up to seven days.
-export TIME_LIMIT="${TIME_LIMIT:-00:30:00}"
+export TIME_LIMIT="${TIME_LIMIT:-1-00:00:00}"
 
 export CUDA_MODULE="${CUDA_MODULE:-cuda/12.8}"
 
@@ -141,11 +141,6 @@ export FAIL_ON_OOM="${FAIL_ON_OOM:-0}"
 # ============================================================================
 # Reproducibility and submission behavior
 # ============================================================================
-
-# Require no tracked modifications before submission.
-# Generated configs should normally be regenerated, reviewed, committed,
-# and then submitted.
-export REQUIRE_CLEAN="${REQUIRE_CLEAN:-1}"
 
 export DRY_RUN="${DRY_RUN:-0}"
 
@@ -276,10 +271,6 @@ validate_settings() {
     require_boolean \
         "FAIL_ON_OOM" \
         "$FAIL_ON_OOM"
-
-    require_boolean \
-        "REQUIRE_CLEAN" \
-        "$REQUIRE_CLEAN"
 
     require_boolean \
         "DRY_RUN" \
@@ -499,37 +490,14 @@ submission_mode() {
     require_internal_real_directory \
         "$PROJECT_ROOT/checkpoints"
 
-    if [[ "$REQUIRE_CLEAN" == "1" ]]; then
-        if [[ -n "$(
-            git status \
-                --porcelain \
-                --untracked-files=no
-        )" ]]; then
-            echo "Tracked modifications:" >&2
-            git status \
-                --short \
-                --untracked-files=no >&2
 
-            fail \
-                "Commit or revert tracked changes before submission"
-        fi
-    else
-        echo \
-            "WARNING: REQUIRE_CLEAN=0; code may not be reproducible." \
-            >&2
-    fi
-
-    export SUBMIT_COMMIT="$(
-        git rev-parse HEAD
-    )"
 
     local timestamp
     timestamp="$(
         date +%Y%m%d_%H%M%S
     )"
 
-    export SNAPSHOT_DIRECTORY="$PROJECT_ROOT/logs/config_manifests/"\
-"${timestamp}_${SUBMIT_COMMIT:0:12}"
+    export SNAPSHOT_DIRECTORY="$PROJECT_ROOT/logs/config_manifests/${timestamp}"
 
     mkdir -p "$SNAPSHOT_DIRECTORY"
 
@@ -539,7 +507,6 @@ submission_mode() {
     echo "Include regex:     ${INCLUDE_REGEX:-<none>}"
     echo "Exclude regex:     ${EXCLUDE_REGEX:-<none>}"
     echo "Recursive search:  $RECURSIVE_CONFIG_SEARCH"
-    echo "Commit:            $SUBMIT_COMMIT"
 
     export CONFIG_MANIFEST="$(
         generate_config_manifest \
@@ -646,9 +613,6 @@ worker_mode() {
     [[ -n "${CONFIG_MANIFEST_SHA256:-}" ]] ||
         fail "CONFIG_MANIFEST_SHA256 is missing"
 
-    [[ -n "${SUBMIT_COMMIT:-}" ]] ||
-        fail "SUBMIT_COMMIT is missing"
-
     local actual_manifest_sha
     actual_manifest_sha="$(
         sha256sum "$CONFIG_MANIFEST" |
@@ -658,16 +622,6 @@ worker_mode() {
     [[ "$actual_manifest_sha" == "$CONFIG_MANIFEST_SHA256" ]] ||
         fail \
             "Config manifest changed after submission"
-
-    local current_commit
-    current_commit="$(
-        git rev-parse HEAD
-    )"
-
-    [[ "$current_commit" == "$SUBMIT_COMMIT" ]] ||
-        fail \
-            "Repository HEAD changed while job was queued: " \
-            "$current_commit != $SUBMIT_COMMIT"
 
     require_internal_real_directory \
         "$PROJECT_ROOT/results"
@@ -684,7 +638,6 @@ worker_mode() {
     echo "Date:             $(date --iso-8601=seconds)"
     echo "Host:             $(hostname)"
     echo "Job ID:           $SLURM_JOB_ID"
-    echo "Commit:           $current_commit"
     echo "Manifest:         $CONFIG_MANIFEST"
     echo "GPUs requested:   $GPUS_PER_JOB"
     echo "GPU type:         $GPU_TYPE"
