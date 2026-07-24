@@ -93,7 +93,7 @@ export MEM_GB_PER_GPU="${MEM_GB_PER_GPU:-48}"
 
 # One packed job may run many configs. Increase this when the local generated
 # set is large. The A40 partition currently permits up to seven days.
-export TIME_LIMIT="${TIME_LIMIT:-1-00:00:00}"
+export TIME_LIMIT="${TIME_LIMIT:-1-00:30:00}"
 
 export CUDA_MODULE="${CUDA_MODULE:-cuda/12.8}"
 
@@ -482,6 +482,11 @@ PY
 
 submission_mode() {
     validate_settings
+
+    module purge
+    module load slurm
+    module load "$CUDA_MODULE"
+
     setup_python_environment
 
     require_internal_real_directory \
