@@ -1,8 +1,8 @@
 """Dataset loading and preprocessing interfaces shared by all training methods."""
 
 from .gsm8k import (
-    DEFAULT_SYSTEM_PROMPT,
     DEFAULT_GSM8K_REVISION,
+    DEFAULT_SYSTEM_PROMPT,
     CausalLMCollator,
     GSM8KDataConfig,
     build_plain_prompt,

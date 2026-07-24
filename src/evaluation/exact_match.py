@@ -10,7 +10,6 @@ from fractions import Fraction
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
-
 _NUMBER_TEXT = r"[-+]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?(?:[eE][-+]?\d+)?%?"
 _FRACTION_TEXT = r"[-+]?\d+\s*/\s*\d+"
 _NUMERIC_CANDIDATE_PATTERN = re.compile(f"(?:{_FRACTION_TEXT})|(?:{_NUMBER_TEXT})")

@@ -10,7 +10,6 @@ from typing import Any, Iterable, Mapping, Sequence
 
 import pandas as pd
 
-
 RESULT_METRICS = (
     "peak_memory_gb",
     "tokens_per_second",
