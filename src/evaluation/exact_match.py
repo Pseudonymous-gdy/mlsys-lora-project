@@ -17,6 +17,13 @@ _BOXED_PATTERN = re.compile(r"\\boxed\{([^{}]+)\}")
 _FINAL_PHRASE_PATTERN = re.compile(
     r"(?:final\s+answer|answer)\s*(?:is|=|:)?\s*([^\n]+)", re.IGNORECASE
 )
+# A model that never emits EOS keeps generating past its own answer and opens a
+# new chat turn. Special tokens are stripped during decoding, so the boundary
+# survives as a bare role word on its own line.
+_TURN_BOUNDARY_PATTERN = re.compile(
+    r"(?:<\|im_(?:start|end)\|>)|(?:\n[ \t]*(?:user|assistant|system)[ \t]*\n)",
+    re.IGNORECASE,
+)
 
 
 def _last_numeric_candidate(text: str) -> str | None:
@@ -101,8 +108,31 @@ def extract_prediction_answer(prediction: str) -> str | None:
     return normalize_numeric_answer(_last_numeric_candidate(text))
 
 
+def truncate_to_first_turn(prediction: str) -> str:
+    """Keep only the first generated turn of a completion.
+
+    Truncating at the first role boundary is what makes the answer of a model
+    that never emits EOS gradable: without it the last-number fallback lands on
+    whatever the generation was cut off mid-way through at the token limit.
+    """
+
+    text = str(prediction)
+    boundary = _TURN_BOUNDARY_PATTERN.search(text)
+    return text[: boundary.start()] if boundary else text
+
+
+def extract_first_turn_answer(prediction: str) -> str | None:
+    """Extract the last complete answer of the first generated turn."""
+
+    return extract_prediction_answer(truncate_to_first_turn(prediction))
+
+
 def score_prediction(prediction: str, reference: str) -> dict[str, Any]:
-    """Score one model completion against either a raw or canonical reference."""
+    """Score one model completion against either a raw or canonical reference.
+
+    Both grading rules are reported so the choice of answer extraction stays
+    auditable instead of being baked into a single number.
+    """
 
     predicted_answer = extract_prediction_answer(prediction)
     gold_answer = extract_reference_answer(reference)
@@ -111,10 +141,18 @@ def score_prediction(prediction: str, reference: str) -> dict[str, Any]:
         and gold_answer is not None
         and predicted_answer == gold_answer
     )
+    first_turn_answer = extract_first_turn_answer(prediction)
+    first_turn_correct = (
+        first_turn_answer is not None
+        and gold_answer is not None
+        and first_turn_answer == gold_answer
+    )
     return {
         "predicted_answer": predicted_answer,
         "gold_answer": gold_answer,
         "correct": bool(correct),
+        "first_turn_predicted_answer": first_turn_answer,
+        "first_turn_correct": bool(first_turn_correct),
     }
 
 
@@ -140,11 +178,17 @@ def compute_exact_match(
         for prediction, reference in zip(predictions, references)
     ]
     correct = sum(int(item["correct"]) for item in details)
+    first_turn_correct = sum(int(item["first_turn_correct"]) for item in details)
     return {
         "exact_match": correct / len(details),
         "correct": correct,
         "total": len(details),
         "unparseable": sum(item["predicted_answer"] is None for item in details),
+        "first_turn_exact_match": first_turn_correct / len(details),
+        "first_turn_correct": first_turn_correct,
+        "first_turn_unparseable": sum(
+            item["first_turn_predicted_answer"] is None for item in details
+        ),
         "details": details,
     }
 
@@ -185,7 +229,14 @@ def main() -> None:
         json.dumps(
             {
                 key: summary[key]
-                for key in ("exact_match", "correct", "total", "unparseable")
+                for key in (
+                    "exact_match",
+                    "correct",
+                    "total",
+                    "unparseable",
+                    "first_turn_exact_match",
+                    "first_turn_correct",
+                )
             },
             indent=2,
         )

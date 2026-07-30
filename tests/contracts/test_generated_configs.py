@@ -27,7 +27,18 @@ from training.config import (
 
 GENERATED_CONFIGS_DIR = Path(__file__).parent.parent.parent / "configs" / "generated"
 
+TUNING_SEEDS = (11, 22, 33)
+TUNING_RATES = {"2e-5": 2e-5, "5e-5": 5e-5, "1e-4": 1e-4, "2e-4": 2e-4}
+
+TUNING_CONFIGS = [
+    f"hyperparameter_tuning_{method}_lr{tag}_s{seed}.yaml"
+    for method in ("full_ft", "lora")
+    for tag in TUNING_RATES
+    for seed in TUNING_SEEDS
+]
+
 ALL_GENERATED_CONFIGS = [
+    *TUNING_CONFIGS,
     # Batch sweep configs
     "batch_full_ft_mb1.yaml",
     "batch_full_ft_mb16.yaml",
@@ -51,12 +62,18 @@ ALL_GENERATED_CONFIGS = [
     "seed_full_ft_r0_s11.yaml",
     "seed_full_ft_r0_s22.yaml",
     "seed_full_ft_r0_s33.yaml",
+    "seed_full_ft_r0_s44.yaml",
+    "seed_full_ft_r0_s55.yaml",
     "seed_lora_r16_s11.yaml",
     "seed_lora_r16_s22.yaml",
     "seed_lora_r16_s33.yaml",
+    "seed_lora_r16_s44.yaml",
+    "seed_lora_r16_s55.yaml",
     "seed_lora_r8_s11.yaml",
     "seed_lora_r8_s22.yaml",
     "seed_lora_r8_s33.yaml",
+    "seed_lora_r8_s44.yaml",
+    "seed_lora_r8_s55.yaml",
     # Sequence length sweep configs
     "seq_full_ft_l1024.yaml",
     "seq_full_ft_l256.yaml",
@@ -248,8 +265,41 @@ class TestGeneratedConfigs:
             assert config.training.max_steps <= 30
 
     def test_config_count_is_correct(self):
-        """There should be exactly 39 generated config files."""
-        assert len(ALL_GENERATED_CONFIGS) == 33
+        """There should be exactly 63 generated config files."""
+        assert len(ALL_GENERATED_CONFIGS) == 63
 
         existing_configs = list(GENERATED_CONFIGS_DIR.glob("*.yaml"))
-        assert len(existing_configs) == 39, f"Expected 39 configs, found {len(existing_configs)}"
+        assert len(existing_configs) == 63, f"Expected 63 configs, found {len(existing_configs)}"
+
+    def test_tuning_sweep_covers_the_common_grid_on_three_seeds(self):
+        """Both methods get the same four rates and the same selection seeds."""
+        assert len(TUNING_CONFIGS) == 24
+
+        observed: dict[str, set[tuple[float, int]]] = {"full_ft": set(), "lora": set()}
+
+        for config_name in TUNING_CONFIGS:
+            config = load_experiment_config(GENERATED_CONFIGS_DIR / config_name)
+            observed[config.method.name].add(
+                (config.training.learning_rate, config.training.seed)
+            )
+
+        expected = {
+            (rate, seed) for rate in TUNING_RATES.values() for seed in TUNING_SEEDS
+        }
+        assert observed["full_ft"] == expected
+        assert observed["lora"] == expected
+
+    def test_tuning_configs_score_the_validation_split(self):
+        """The learning-rate sweep must never be scored on the test split."""
+        for config_name in TUNING_CONFIGS:
+            config = load_experiment_config(GENERATED_CONFIGS_DIR / config_name)
+            assert config.evaluation.split == "validation"
+            assert config.evaluation.max_examples == 500
+
+    def test_non_tuning_configs_score_the_test_split(self):
+        """Every reported experiment is scored on the official test split."""
+        for config_name in ALL_GENERATED_CONFIGS:
+            if config_name.startswith("hyperparameter_tuning"):
+                continue
+            config = load_experiment_config(GENERATED_CONFIGS_DIR / config_name)
+            assert config.evaluation.split == "test"

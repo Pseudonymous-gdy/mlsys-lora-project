@@ -41,6 +41,7 @@ class DataBundle:
     """Bundles data loaders and dataset metadata."""
     train_loader: DataLoader
     validation_loader: DataLoader
+    validation_dataset: Any
     test_dataset: Any
     train_examples: int
     validation_examples: int
@@ -275,7 +276,7 @@ def build_data_bundle(config: ExperimentConfig, tokenizer: Any) -> DataBundle:
     1. call the existing prepare_gsm8k_datasets
     2. construct the existing CausalLMCollator
     3. create train and validation DataLoaders
-    4. expose the formatted test dataset
+    4. expose the validation and formatted test datasets
     5. record split sizes
 
     Train DataLoader:
@@ -334,6 +335,7 @@ def build_data_bundle(config: ExperimentConfig, tokenizer: Any) -> DataBundle:
     return DataBundle(
         train_loader=train_loader,
         validation_loader=validation_loader,
+        validation_dataset=datasets["validation"],
         test_dataset=test_dataset,
         train_examples=len(datasets["train"]),
         validation_examples=len(datasets["validation"]),

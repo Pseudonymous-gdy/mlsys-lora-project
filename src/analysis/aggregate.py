@@ -51,6 +51,9 @@ def validate_result_record(
         "training_time_seconds",
         "checkpoint_size_mb",
     ):
+        # A tuning run that deliberately saves no artifact reports no size.
+        if field == "checkpoint_size_mb" and normalized[field] is None:
+            continue
         if isinstance(normalized[field], bool) or float(normalized[field]) < 0:
             raise ValueError(f"{source}: {field} must be non-negative")
         normalized[field] = float(normalized[field])
