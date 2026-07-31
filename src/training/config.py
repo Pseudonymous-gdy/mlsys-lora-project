@@ -74,6 +74,9 @@ class EvaluationConfig:
     max_new_tokens: int = 512
     do_sample: bool = False
     max_examples: int | None = None
+    # Tuning sweeps must score the held-out validation split. The official
+    # test split is reserved for the final reported comparison.
+    split: Literal["validation", "test"] = "test"
 
 
 @dataclass(frozen=True)
@@ -214,6 +217,7 @@ def _parse_evaluation_config(raw: dict[str, Any]) -> EvaluationConfig:
         max_new_tokens=evaluation.get("max_new_tokens", 512),
         do_sample=evaluation.get("do_sample", False),
         max_examples=evaluation.get("max_examples"),
+        split=evaluation.get("split", "test"),
     )
 
 
@@ -277,6 +281,7 @@ def validate_experiment_config(config: ExperimentConfig) -> None:
     - throughput_warmup_steps ≥ 0
     - evaluation.batch_size > 0
     - evaluation.max_new_tokens > 0
+    - evaluation.split is 'validation' or 'test'
 
     Stopping conditions:
     - at least one of max_steps or training_token_budget must be set
@@ -369,6 +374,15 @@ def validate_experiment_config(config: ExperimentConfig) -> None:
         errors.append("evaluation.batch_size must be > 0")
     if e.max_new_tokens <= 0:
         errors.append("evaluation.max_new_tokens must be > 0")
+    if e.split not in ("validation", "test"):
+        errors.append(
+            "evaluation.split must be 'validation' or 'test', "
+            f"got '{e.split}'"
+        )
+    if e.max_examples is not None and e.max_examples <= 0:
+        errors.append(
+            "evaluation.max_examples must be > 0 when set"
+        )
 
     # Precision
     if t.precision not in ("bf16", "fp32"):

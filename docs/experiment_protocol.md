@@ -70,22 +70,62 @@ Unparseable generations count as incorrect. Greedy decoding (`do_sample: false`)
 is the default so evaluation is repeatable. Raw predictions should be retained
 for error analysis but must not be confused with aggregate experiment results.
 
+A model that never emits EOS keeps generating past its own answer, opens a new
+chat turn, repeats the final-answer marker, and is finally cut off mid-number at
+the token limit. Grading the last marker of such a generation scores the
+truncated fragment. Every run therefore reports two numbers:
+
+- `exact_match_first_turn`: the primary reported rule. The generation is
+  truncated at the first role boundary and the last complete answer of that
+  first turn is graded.
+- `exact_match`: the original last-answer rule, retained so the sensitivity of
+  the comparison to answer extraction stays measurable.
+
+On the five-seed comparison the two rules agree on LoRA to the digit and differ
+by about five points on Full FT, so tables must state which rule they use.
+
 ## 4. Generated experiment matrix
 
-`configs/base.yaml` and `configs/sweeps.yaml` generate 33 run configs:
+`configs/base.yaml` and `configs/sweeps.yaml` generate 63 run configs:
 
 - 2 smoke tests (Full FT and LoRA-16, 30 steps);
 - 2 main comparisons (Full FT and LoRA-16);
 - 10 maximum-batch runs (2 methods × micro-batch 1/2/4/8/16);
 - 4 LoRA ranks (4/8/16/32);
 - 6 sequence-length runs (2 methods × 256/512/1024);
-- 9 final-seed runs (Full FT, LoRA-8, LoRA-16 × seeds 11/22/33).
+- 15 final-seed runs (Full FT, LoRA-8, LoRA-16 × seeds 11/22/33/44/55);
+- 24 learning-rate tuning runs (2 methods × 4 rates × seeds 11/22/33).
 
 The base protocol uses effective batch size 16 and a one-million non-padding
 training-token budget for non-smoke experiments. The generated defaults use
 learning rate 2e-5 for Full FT and 2e-4 for LoRA. These research choices are
 explicit and reviewable; both teammates should approve them before starting the
 expensive cluster runs.
+
+## 4.1 Learning-rate selection
+
+The two default rates above are not assumed; they are selected. Both methods
+receive the identical AdamW grid 2e-5 / 5e-5 / 1e-4 / 2e-4 under the same token
+budget, batch shape, sequence length, and selection seeds 11/22/33.
+
+Tuning runs set `evaluation.split: validation` and are therefore scored on the
+500 held-out examples carved from official train. This is what keeps §1's
+promise that the official test split is never used for tuning; every other
+config keeps the default `evaluation.split: test`. Tuning runs also set
+`output.save_final_checkpoint: false`, because a rate that is not selected has
+no artifact worth keeping.
+
+Selection uses mean validation first-turn exact match over the three seeds, with
+mean validation loss as the tie-breaker:
+
+```bash
+PYTHONPATH=src python -m analysis.tuning_table results \
+  --markdown reports/learning_rate_selection.md \
+  --json reports/learning_rate_selection.json
+```
+
+The module refuses to build a table from any run whose `evaluation_split` is not
+`validation`.
 
 ## 5. Training result contract
 

@@ -57,6 +57,7 @@ def make_completed_result(overrides: dict | None = None) -> ExperimentResult:
         status="completed",
         error_type=None,
         error_message=None,
+        exact_match_first_turn=0.5,
     )
 
     if overrides:

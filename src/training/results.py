@@ -51,6 +51,9 @@ class EvaluationResult:
     total: int
     unparseable: int
     generation_time_seconds: float
+    # Primary reported rule: grade the first generated turn only.
+    exact_match_first_turn: float = 0.0
+    first_turn_correct: int = 0
 
 
 @dataclass(frozen=True)
@@ -83,6 +86,10 @@ class ExperimentResult:
     status: Literal["completed", "oom", "failed"]
     error_type: str | None
     error_message: str | None
+    learning_rate: float | None = None
+    evaluation_split: str = "test"
+    exact_match_first_turn: float | None = None
+    validation_loss: float | None = None
 
 
 # ============================================================================
@@ -188,6 +195,23 @@ def validate_experiment_result(result: ExperimentResult) -> None:
     # ------------------------------------------------------------------
     # Status contract
     # ------------------------------------------------------------------
+    if result.evaluation_split not in (
+        "validation",
+        "test",
+    ):
+        errors.append(
+            "evaluation_split must be 'validation' "
+            f"or 'test', got {result.evaluation_split!r}"
+        )
+
+    if (
+        result.learning_rate is not None
+        and result.learning_rate <= 0
+    ):
+        errors.append(
+            "learning_rate must be positive when set"
+        )
+
     if result.status not in (
         "completed",
         "oom",
@@ -254,6 +278,17 @@ def validate_experiment_result(result: ExperimentResult) -> None:
             )
 
         if (
+            result.exact_match_first_turn is None
+            or not 0.0
+            <= result.exact_match_first_turn
+            <= 1.0
+        ):
+            errors.append(
+                "completed exact_match_first_turn must "
+                "be within [0, 1]"
+            )
+
+        if (
             result.tokens_per_second is None
             or result.tokens_per_second <= 0
         ):
@@ -293,6 +328,7 @@ def validate_experiment_result(result: ExperimentResult) -> None:
             "checkpoint_size_mb",
             result.checkpoint_size_mb,
         ),
+        ("learning_rate", result.learning_rate),
     )
 
     for name, value in numeric_fields:

@@ -1,0 +1,118 @@
+{
+  "cells": [
+    {
+      "method": "full_ft",
+      "rank": null,
+      "learning_rate": 2e-05,
+      "seeds": [
+        11,
+        22,
+        33
+      ],
+      "exact_match_first_turn_percent_mean": 39.93333333333333,
+      "exact_match_first_turn_percent_std": 2.193931022920576,
+      "validation_loss_mean": 0.42097996146480243
+    },
+    {
+      "method": "full_ft",
+      "rank": null,
+      "learning_rate": 5e-05,
+      "seeds": [
+        11,
+        22,
+        33
+      ],
+      "exact_match_first_turn_percent_mean": 21.533333333333335,
+      "exact_match_first_turn_percent_std": 3.1134118476894974,
+      "validation_loss_mean": 0.5077814595103264
+    },
+    {
+      "method": "full_ft",
+      "rank": null,
+      "learning_rate": 0.0001,
+      "seeds": [
+        11,
+        22,
+        33
+      ],
+      "exact_match_first_turn_percent_mean": 6.6000000000000005,
+      "exact_match_first_turn_percent_std": 1.4,
+      "validation_loss_mean": 0.6629904886682828
+    },
+    {
+      "method": "full_ft",
+      "rank": null,
+      "learning_rate": 0.0002,
+      "seeds": [
+        11,
+        22,
+        33
+      ],
+      "exact_match_first_turn_percent_mean": 1.0666666666666667,
+      "exact_match_first_turn_percent_std": 0.41633319989322665,
+      "validation_loss_mean": 0.9868451718091965
+    },
+    {
+      "method": "lora",
+      "rank": 16,
+      "learning_rate": 2e-05,
+      "seeds": [
+        11,
+        22,
+        33
+      ],
+      "exact_match_first_turn_percent_mean": 39.666666666666664,
+      "exact_match_first_turn_percent_std": 2.4440403706431137,
+      "validation_loss_mean": 0.5075688178737958
+    },
+    {
+      "method": "lora",
+      "rank": 16,
+      "learning_rate": 5e-05,
+      "seeds": [
+        11,
+        22,
+        33
+      ],
+      "exact_match_first_turn_percent_mean": 43.46666666666667,
+      "exact_match_first_turn_percent_std": 2.8095076674274013,
+      "validation_loss_mean": 0.4840829101204872
+    },
+    {
+      "method": "lora",
+      "rank": 16,
+      "learning_rate": 0.0001,
+      "seeds": [
+        11,
+        22,
+        33
+      ],
+      "exact_match_first_turn_percent_mean": 45.93333333333334,
+      "exact_match_first_turn_percent_std": 0.6110100926607795,
+      "validation_loss_mean": 0.46965675783157346
+    },
+    {
+      "method": "lora",
+      "rank": 16,
+      "learning_rate": 0.0002,
+      "seeds": [
+        11,
+        22,
+        33
+      ],
+      "exact_match_first_turn_percent_mean": 46.46666666666667,
+      "exact_match_first_turn_percent_std": 1.474222959166394,
+      "validation_loss_mean": 0.45645522117614745
+    }
+  ],
+  "selected": {
+    "Full FT": {
+      "learning_rate": 2e-05,
+      "exact_match_first_turn_percent_mean": 39.93333333333333
+    },
+    "LoRA-r16": {
+      "learning_rate": 0.0002,
+      "exact_match_first_turn_percent_mean": 46.46666666666667
+    }
+  }
+}

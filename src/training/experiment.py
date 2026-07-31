@@ -6,11 +6,13 @@ Defines ExperimentRunner which coordinates the full training and evaluation pipe
 
 from __future__ import annotations
 
+import contextlib
 import datetime
 import json
 import platform
 import re
 import subprocess
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -351,12 +353,20 @@ def evaluate_model(
     # Aggregate results
     total = len(records)
     correct = sum(1 for r in records if r.get("correct", False))
+    first_turn_correct = sum(
+        1
+        for record in records
+        if record.get("first_turn_correct", False)
+    )
     unparseable = sum(
         1
         for record in records
         if record.get("predicted_answer") is None
     )
     exact_match = correct / total if total > 0 else 0.0
+    exact_match_first_turn = (
+        first_turn_correct / total if total > 0 else 0.0
+    )
 
     return EvaluationResult(
         exact_match=exact_match,
@@ -364,7 +374,83 @@ def evaluate_model(
         total=total,
         unparseable=unparseable,
         generation_time_seconds=generation_time,
+        exact_match_first_turn=exact_match_first_turn,
+        first_turn_correct=first_turn_correct,
     )
+
+
+# ============================================================================
+# Validation loss
+# ============================================================================
+
+
+def _autocast_context(
+    config: ExperimentConfig,
+    device: torch.device,
+):
+    """Match the training loop's precision during validation."""
+    if config.training.precision == "bf16":
+        return torch.autocast(
+            device_type=device.type,
+            dtype=torch.bfloat16,
+        )
+
+    return contextlib.nullcontext()
+
+
+def compute_validation_loss(
+    model: torch.nn.Module,
+    validation_loader: object,
+    config: ExperimentConfig,
+    device: torch.device,
+) -> float:
+    """
+    Mean cross-entropy over the validation split.
+
+    The learning-rate sweep uses this as the documented tie-breaker when two
+    rates reach the same validation exact match. It never influences training.
+    """
+    was_training = model.training
+    model.eval()
+
+    total_loss = 0.0
+    batches = 0
+
+    try:
+        with torch.inference_mode():
+            for batch in validation_loader:
+                inputs = {
+                    key: value.to(device)
+                    for key, value in batch.items()
+                    if key != "num_non_padding_tokens"
+                }
+
+                with _autocast_context(config, device):
+                    outputs = model(
+                        **inputs,
+                        use_cache=False,
+                    )
+
+                if outputs.loss is None:
+                    raise RuntimeError(
+                        "Model output does not contain a "
+                        "loss during validation."
+                    )
+
+                total_loss += float(
+                    outputs.loss.detach().item()
+                )
+                batches += 1
+    finally:
+        if was_training:
+            model.train()
+
+    if batches == 0:
+        raise ValueError(
+            "Validation loader produced no batches."
+        )
+
+    return total_loss / batches
 
 
 # ============================================================================
@@ -547,15 +633,35 @@ class ExperimentRunner:
         Evaluate model and save predictions.
 
         Responsibilities:
+        - select the configured evaluation split
         - call evaluate_model
         - save predictions to run result directory
         """
+        if self.config.evaluation.split == "validation":
+            dataset = components.data_bundle.validation_dataset
+        else:
+            dataset = components.data_bundle.test_dataset
+
         return evaluate_model(
             model=model,
             tokenizer=components.model_bundle.tokenizer,
-            test_dataset=components.data_bundle.test_dataset,
+            test_dataset=dataset,
             config=self.config,
             output_path=self.run_paths.predictions_jsonl,
+        )
+
+    def _validation_loss(
+        self,
+        components: TrainingComponents,
+    ) -> float:
+        """Score the trained model on the validation split."""
+        return compute_validation_loss(
+            model=components.model_bundle.model,
+            validation_loader=(
+                components.data_bundle.validation_loader
+            ),
+            config=self.config,
+            device=components.device,
         )
 
     def _build_completed_result(
@@ -563,6 +669,7 @@ class ExperimentRunner:
         training_result: TrainingResult,
         checkpoint_info: CheckpointInfo | None,
         evaluation_result: EvaluationResult,
+        validation_loss: float | None,
     ) -> ExperimentResult:
         """
         Build completed experiment result.
@@ -588,12 +695,18 @@ class ExperimentRunner:
             tokens_per_second=training_result.tokens_per_second,
             training_time_seconds=training_result.training_time_seconds,
             exact_match=evaluation_result.exact_match,
+            exact_match_first_turn=(
+                evaluation_result.exact_match_first_turn
+            ),
+            validation_loss=validation_loss,
             trainable_parameters=param_stats.trainable_parameters,
             total_parameters=param_stats.total_parameters,
             checkpoint_size_mb=checkpoint_info.size_mb if checkpoint_info else None,
             trained_non_padding_tokens=training_result.trained_non_padding_tokens,
             optimizer_steps=training_result.optimizer_steps,
             seed=self.config.training.seed,
+            learning_rate=self.config.training.learning_rate,
+            evaluation_split=self.config.evaluation.split,
             sweep=self.config.experiment.sweep,
             model_name=self.config.model.name,
             model_revision=self.config.model.revision,
@@ -640,6 +753,8 @@ class ExperimentRunner:
             trained_non_padding_tokens=None,
             optimizer_steps=None,
             seed=self.config.training.seed,
+            learning_rate=self.config.training.learning_rate,
+            evaluation_split=self.config.evaluation.split,
             sweep=self.config.experiment.sweep,
             model_name=self.config.model.name,
             model_revision=self.config.model.revision,
@@ -683,6 +798,8 @@ class ExperimentRunner:
             trained_non_padding_tokens=None,
             optimizer_steps=None,
             seed=self.config.training.seed,
+            learning_rate=self.config.training.learning_rate,
+            evaluation_split=self.config.evaluation.split,
             sweep=self.config.experiment.sweep,
             model_name=self.config.model.name,
             model_revision=self.config.model.revision,
@@ -703,12 +820,13 @@ class ExperimentRunner:
         3. build components
         4. write metadata
         5. train
-        6. save final artifact
-        7. reload final artifact
-        8. evaluate
-        9. build completed result
-        10. write result.json
-        11. return result
+        6. score validation loss
+        7. save final artifact
+        8. reload final artifact
+        9. evaluate
+        10. build completed result
+        11. write result.json
+        12. return result
 
         Exception behavior:
         CUDA OOM
@@ -738,6 +856,21 @@ class ExperimentRunner:
             # Train
             training_result = self._train(self._components)
 
+            # Score the validation split before any checkpoint round-trip so
+            # peak training memory is already recorded. This is a tie-breaker
+            # metric, so losing it must not discard a finished training run.
+            try:
+                validation_loss = self._validation_loss(
+                    self._components
+                )
+            except Exception as error:
+                print(
+                    "Warning: validation loss unavailable: "
+                    f"{type(error).__name__}: {error}",
+                    file=sys.stderr,
+                )
+                validation_loss = None
+
             # Save and reload
             checkpoint_info, reloaded_model = self._save_and_reload(self._components)
 
@@ -749,6 +882,7 @@ class ExperimentRunner:
                 training_result=training_result,
                 checkpoint_info=checkpoint_info,
                 evaluation_result=evaluation_result,
+                validation_loss=validation_loss,
             )
 
             write_json_atomic(

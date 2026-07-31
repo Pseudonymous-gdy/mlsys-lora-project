@@ -50,6 +50,29 @@ sweeps:
     axes:
       max_length: [256, 512, 1024]
 
+  hyperparameter_tuning:
+    # Common learning-rate grid for both methods over the three selection
+    # seeds, scored on the held-out validation split so the official test
+    # split stays untouched by tuning.
+    run_name: "hyperparameter_tuning_{method}_lr{lr_tag}_s{seed}"
+    matrix:
+      - {method: full_ft, rank: null, learning_rate: 0.00002, lr_tag: "2e-5"}
+      - {method: full_ft, rank: null, learning_rate: 0.00005, lr_tag: "5e-5"}
+      - {method: full_ft, rank: null, learning_rate: 0.0001, lr_tag: "1e-4"}
+      - {method: full_ft, rank: null, learning_rate: 0.0002, lr_tag: "2e-4"}
+      - {method: lora, rank: 16, learning_rate: 0.00002, lr_tag: "2e-5"}
+      - {method: lora, rank: 16, learning_rate: 0.00005, lr_tag: "5e-5"}
+      - {method: lora, rank: 16, learning_rate: 0.0001, lr_tag: "1e-4"}
+      - {method: lora, rank: 16, learning_rate: 0.0002, lr_tag: "2e-4"}
+    axes:
+      seed: [11, 22, 33]
+    overrides:
+      evaluation:
+        split: validation
+        max_examples: 500
+      output:
+        save_final_checkpoint: false
+
   final_seeds:
     run_name: "seed_{method}_r{rank}_s{seed}"
     matrix:
